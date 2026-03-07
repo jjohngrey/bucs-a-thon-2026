@@ -4,6 +4,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import assert from "node:assert/strict";
 import {
   CLIENT_EVENTS,
+  DEFAULT_MATCH_RULES,
+  DEFAULT_STAGE,
   SERVER_EVENTS,
   type LobbyStatePayload,
   type MatchSnapshotPayload,
@@ -16,7 +18,7 @@ const TEST_PORT = 3102;
 const SERVER_URL = `http://127.0.0.1:${TEST_PORT}`;
 const SERVER_START_TIMEOUT_MS = 5_000;
 const EVENT_TIMEOUT_MS = 5_000;
-const FLOOR_Y = 0;
+const FLOOR_Y = DEFAULT_STAGE.floorY;
 
 type TestClientState = {
   session?: SessionJoinedPayload;
@@ -133,8 +135,12 @@ async function main() {
       assert.equal(hostSnapshot.snapshot.serverFrame, 0);
       assert.equal(hostSnapshot.snapshot.players.length, 2);
       assert.equal(guestSnapshot.snapshot.players.length, 2);
+      assert.equal(hostSnapshot.snapshot.players[0]?.x, DEFAULT_STAGE.spawnPoints[0]?.x);
+      assert.equal(hostSnapshot.snapshot.players[0]?.y, DEFAULT_STAGE.spawnPoints[0]?.y);
+      assert.equal(hostSnapshot.snapshot.players[1]?.x, DEFAULT_STAGE.spawnPoints[1]?.x);
+      assert.equal(hostSnapshot.snapshot.players[1]?.y, DEFAULT_STAGE.spawnPoints[1]?.y);
       assert.equal(hostSnapshot.snapshot.players[0]?.damage, 0);
-      assert.equal(hostSnapshot.snapshot.players[0]?.stocks, 3);
+      assert.equal(hostSnapshot.snapshot.players[0]?.stocks, DEFAULT_MATCH_RULES.startingStocks);
       assert.equal(hostSnapshot.snapshot.players[0]?.grounded, true);
 
       hostSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {

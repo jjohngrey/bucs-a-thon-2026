@@ -95,6 +95,35 @@ export class LobbyStore {
     return record.lobby;
   }
 
+  setPlayerCharacter(
+    roomCode: string,
+    playerId: string,
+    characterId: string,
+  ): LobbyState | undefined {
+    const record = this.lobbies.get(roomCode);
+    if (!record) {
+      return undefined;
+    }
+
+    const player = record.lobby.players.find((entry) => entry.id === playerId);
+    if (!player) {
+      return undefined;
+    }
+
+    player.selectedCharacterId = characterId;
+    return record.lobby;
+  }
+
+  setStage(roomCode: string, stageId: string): LobbyState | undefined {
+    const record = this.lobbies.get(roomCode);
+    if (!record) {
+      return undefined;
+    }
+
+    record.lobby.selectedStageId = stageId;
+    return record.lobby;
+  }
+
   resetLobbyForNextMatch(roomCode: string): LobbyState | undefined {
     const record = this.lobbies.get(roomCode);
     if (!record) {

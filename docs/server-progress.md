@@ -12,6 +12,8 @@ The server currently supports:
 - `lobby:leave`
 - `lobby:ready`
 - `lobby:return`
+- `match:select-character`
+- `match:select-stage`
 - `match:start`
 - in-memory match session creation
 - countdown-driven transition from `starting` to `in-match`
@@ -37,8 +39,23 @@ The server currently supports:
   - respawn timer
   - respawn invulnerability
   - respawn-platform snapshot data
+- automatic win detection when one player has stocks left
 - explicit `match:end` handling with `match:ended` broadcast
+- active-match departure handling:
+  - if a player leaves or disconnects during `starting` or `in-match`
+  - the server ends the match immediately
+  - the remaining room receives `match:ended`
 - cleanup of in-memory match sessions when a room breaks
+- shared stage and rules data now drive:
+  - floor height
+  - blast zone bounds
+  - initial spawn points
+  - respawn point calculation
+  - respawn timing and platform width
+- lobby-side selection flow:
+  - each player can set `selectedCharacterId`
+  - host can set `selectedStageId`
+  - both changes broadcast through `lobby:state`
 
 ## Verified commands
 
@@ -50,6 +67,8 @@ corepack pnpm smoke:lobby
 corepack pnpm smoke:match-start
 corepack pnpm smoke:combat
 corepack pnpm smoke:stocks
+corepack pnpm smoke:auto-win
+corepack pnpm smoke:match-disconnect
 corepack pnpm smoke:match-end
 corepack pnpm smoke:return-lobby
 ```
@@ -61,6 +80,8 @@ corepack pnpm smoke:return-lobby
 - one client can create a lobby
 - another client can join it
 - both clients receive `lobby:state`
+- host can set the stage
+- a player can set their selected character
 
 ### `smoke:match-start`
 
@@ -72,6 +93,7 @@ corepack pnpm smoke:return-lobby
 - both clients receive an initial `match:snapshot`
 - active matches continue emitting snapshots with increasing server frames
 - server snapshots reflect real movement state changes including jump, gravity, and floor landing
+- initial spawn positions and starting stocks come from shared stage/rules data
 
 ### `smoke:combat`
 
@@ -86,6 +108,21 @@ corepack pnpm smoke:return-lobby
 - the server marks the player as out of play
 - the server starts a respawn timer
 - the server respawns the player with invulnerability and respawn-platform data
+- respawn position and platform width come from shared stage/rules data
+
+### `smoke:auto-win`
+
+- repeated KOs can eliminate a player entirely
+- the server detects the last player with stocks left
+- the server emits `match:ended` automatically
+- lobby phase moves to `finished` without client `match:end`
+
+### `smoke:match-disconnect`
+
+- a player can disconnect during an active match
+- the server ends the match immediately
+- the remaining player receives `match:ended`
+- lobby phase moves to `finished`
 
 ### `smoke:match-end`
 
@@ -103,6 +140,5 @@ corepack pnpm smoke:return-lobby
 
 ## Not done yet
 
-- automatic win detection from stocks
 - reconnect behavior for active matches
 - full character/stage-specific simulation

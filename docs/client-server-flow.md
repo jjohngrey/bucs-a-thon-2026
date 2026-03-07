@@ -56,6 +56,14 @@ Important detail:
 
 - the current server requires all non-host players to be ready before `match:start`
 
+## 5a. Character and stage selection
+
+- A player can send `match:select-character` with their `characterId`.
+- The host can send `match:select-stage` with a `stageId`.
+- The server updates `selectedCharacterId` on that player and `selectedStageId` on the lobby.
+- The server broadcasts a fresh `lobby:state`.
+- The client should render selection UI from that updated lobby state.
+
 ## 6. Host starts the match
 
 - Once enough players are present and everyone is ready, the host clicks start.
@@ -105,21 +113,26 @@ Important detail:
   - respawn timer
   - respawn invulnerability
   - respawn-platform snapshot fields
-- a client can trigger `match:end` to end the current match lifecycle
+- floor, blast zone, spawn points, and respawn rules are now read from shared stage/rules data
+- when only one player has stocks left, the server ends the match automatically
+- a client can still trigger `match:end` as a fallback path
 
 ## 8. If a player leaves or disconnects
 
 - A client can explicitly send `lobby:leave`.
 - Or the socket can disconnect unexpectedly.
 - In either case, the server removes that player from the lobby.
-- If a match session exists for that room, the server removes the in-memory match session too.
+- If that room is in `starting` or `in-match`, the server ends the match immediately.
+- The remaining players receive `match:ended`.
+- The lobby phase moves to `finished`.
+- If no live match is active, the server just removes the in-memory match session if one exists.
 - If the host leaves but players remain, the first remaining player becomes the new host.
 - If players remain, the server broadcasts a new `lobby:state`.
 - If the lobby becomes empty, the lobby is removed from memory.
 
 ## 9. Match end
 
-- When `match:end` is sent for an active room, the server:
+- When `match:end` is sent for an active room, or when the server detects one player remaining, the server:
   - stops the active match interval
   - removes the in-memory match session
   - updates lobby phase to `finished`

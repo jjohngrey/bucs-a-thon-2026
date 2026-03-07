@@ -4,26 +4,26 @@ import { setTimeout as delay } from "node:timers/promises";
 import assert from "node:assert/strict";
 import {
   CLIENT_EVENTS,
-  DEFAULT_MATCH_RULES,
-  DEFAULT_STAGE,
   SERVER_EVENTS,
   type LobbyStatePayload,
+  type MatchEndedPayload,
   type MatchSnapshotPayload,
   type MatchStartingPayload,
   type SessionJoinedPayload,
 } from "@bucs/shared";
 import { io, type Socket } from "socket.io-client";
 
-const TEST_PORT = 3106;
+const TEST_PORT = 3107;
 const SERVER_URL = `http://127.0.0.1:${TEST_PORT}`;
 const SERVER_START_TIMEOUT_MS = 5_000;
-const EVENT_TIMEOUT_MS = 12_000;
+const EVENT_TIMEOUT_MS = 20_000;
 
 type TestClientState = {
   session?: SessionJoinedPayload;
   lobbies: LobbyStatePayload[];
   matchStarting?: MatchStartingPayload;
   snapshots: MatchSnapshotPayload[];
+  matchEnded?: MatchEndedPayload;
 };
 
 async function main() {
@@ -88,71 +88,73 @@ async function main() {
         waitForSnapshotCount(host, 1),
       ]);
 
-      guestSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
-        roomCode: createdLobby.lobby.roomCode,
-        inputFrame: 0,
-        pressed: {
-          left: false,
-          right: true,
-          jump: false,
-          attack: false,
-          special: false,
-        },
-      });
+      for (let remainingStocks = 2; remainingStocks >= 0; remainingStocks -= 1) {
+        guestSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
+          roomCode: createdLobby.lobby.roomCode,
+          inputFrame: 0,
+          pressed: {
+            left: false,
+            right: true,
+            jump: false,
+            attack: false,
+            special: false,
+          },
+        });
 
-      const koSnapshot = await waitForSnapshot(guest, (payload) => {
-        const guestPlayer = payload.snapshot.players.find((player) => player.displayName === "Guest");
-        return Boolean(guestPlayer && guestPlayer.isOutOfPlay && guestPlayer.stocks === 2);
-      });
+        const koSnapshot = await waitForSnapshot(guest, (payload) => {
+          const guestPlayer = payload.snapshot.players.find((player) => player.displayName === "Guest");
+          return Boolean(
+            guestPlayer &&
+              guestPlayer.isOutOfPlay &&
+              guestPlayer.stocks === remainingStocks,
+          );
+        });
 
-      const koGuest = koSnapshot.snapshot.players.find((player) => player.displayName === "Guest");
-      assert.ok(koGuest);
-      assert.equal(koGuest.action, "ko");
-      assert.ok(koGuest.respawnTimerMs > 0);
-      assert.equal(koGuest.respawnInvulnerabilityMs, 0);
+        const guestPlayer = koSnapshot.snapshot.players.find((player) => player.displayName === "Guest");
+        assert.ok(guestPlayer);
+        assert.equal(guestPlayer.stocks, remainingStocks);
 
-      guestSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
-        roomCode: createdLobby.lobby.roomCode,
-        inputFrame: koSnapshot.snapshot.serverFrame,
-        pressed: {
-          left: false,
-          right: false,
-          jump: false,
-          attack: false,
-          special: false,
-        },
-      });
+        if (remainingStocks > 0) {
+          guestSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
+            roomCode: createdLobby.lobby.roomCode,
+            inputFrame: koSnapshot.snapshot.serverFrame,
+            pressed: {
+              left: false,
+              right: false,
+              jump: false,
+              attack: false,
+              special: false,
+            },
+          });
 
-      const respawnSnapshot = await waitForSnapshot(guest, (payload) => {
-        const guestPlayer = payload.snapshot.players.find((player) => player.displayName === "Guest");
-        return Boolean(guestPlayer && !guestPlayer.isOutOfPlay && guestPlayer.stocks === 2 && guestPlayer.respawnInvulnerabilityMs > 0);
-      });
+          await waitForSnapshot(guest, (payload) => {
+            const respawnedGuest = payload.snapshot.players.find((player) => player.displayName === "Guest");
+            return Boolean(
+              respawnedGuest &&
+                !respawnedGuest.isOutOfPlay &&
+                respawnedGuest.stocks === remainingStocks &&
+                respawnedGuest.respawnInvulnerabilityMs > 0,
+            );
+          });
+        }
+      }
 
-      const respawnedGuest = respawnSnapshot.snapshot.players.find((player) => player.displayName === "Guest");
-      assert.ok(respawnedGuest);
-      assert.equal(respawnedGuest.action, "respawn");
-      assert.equal(respawnedGuest.damage, 0);
-      assert.equal(respawnedGuest.respawnTimerMs, 0);
-      assert.equal(
-        respawnedGuest.x,
-        (DEFAULT_STAGE.blastZone.minX + DEFAULT_STAGE.blastZone.maxX) / 2,
-      );
-      assert.equal(
-        respawnedGuest.y,
-        DEFAULT_STAGE.blastZone.minY + DEFAULT_MATCH_RULES.respawnTopBuffer,
-      );
-      assert.equal(respawnedGuest.respawnPlatformCenterX, respawnedGuest.x);
-      assert.equal(respawnedGuest.respawnPlatformY, respawnedGuest.y);
-      assert.equal(
-        respawnedGuest.respawnPlatformWidth,
-        DEFAULT_MATCH_RULES.respawnPlatformWidth,
-      );
-      assert.ok(
-        respawnedGuest.respawnInvulnerabilityMs <=
-          DEFAULT_MATCH_RULES.respawnInvulnerabilityMs,
-      );
+      const [hostEnded, guestEnded, hostFinishedLobby, guestFinishedLobby] = await Promise.all([
+        waitForMatchEnded(hostSocket, host),
+        waitForMatchEnded(guestSocket, guest),
+        waitForLobbyPhase(host, "finished"),
+        waitForLobbyPhase(guest, "finished"),
+      ]);
 
-      console.log("Stocks and respawn smoke test passed.");
+      assert.equal(hostEnded.roomCode, createdLobby.lobby.roomCode);
+      assert.equal(guestEnded.roomCode, createdLobby.lobby.roomCode);
+      assert.equal(hostEnded.summary.winnerPlayerId, host.session?.playerId ?? null);
+      assert.equal(guestEnded.summary.winnerPlayerId, host.session?.playerId ?? null);
+      assert.deepEqual(hostEnded.summary.eliminatedPlayerIds, [guest.session?.playerId].filter(Boolean));
+      assert.equal(hostFinishedLobby.lobby.phase, "finished");
+      assert.equal(guestFinishedLobby.lobby.phase, "finished");
+
+      console.log("Auto-win smoke test passed.");
       console.log(`Room code: ${createdLobby.lobby.roomCode}`);
     } finally {
       hostSocket.disconnect();
@@ -180,6 +182,9 @@ function attachObservers(socket: Socket, state: TestClientState) {
   });
   socket.on(SERVER_EVENTS.MATCH_SNAPSHOT, (payload: MatchSnapshotPayload) => {
     state.snapshots.push(payload);
+  });
+  socket.on(SERVER_EVENTS.MATCH_ENDED, (payload: MatchEndedPayload) => {
+    state.matchEnded = payload;
   });
 }
 
@@ -262,6 +267,13 @@ async function waitForSnapshot(
     await delay(25);
   }
   throw new Error("Timed out waiting for matching snapshot.");
+}
+
+async function waitForMatchEnded(socket: Socket, state: TestClientState) {
+  if (state.matchEnded) return state.matchEnded;
+  await onceWithTimeout(socket, SERVER_EVENTS.MATCH_ENDED);
+  assert.ok(state.matchEnded);
+  return state.matchEnded;
 }
 
 async function onceWithTimeout(socket: Socket, eventName: string, timeoutMs = EVENT_TIMEOUT_MS) {

@@ -6,6 +6,8 @@ import type {
   LobbyReadyPayload,
   MatchEndPayload,
   MatchInputPayload,
+  MatchSelectCharacterPayload,
+  MatchSelectStagePayload,
   MatchStartPayload,
 } from "@bucs/shared";
 import { CLIENT_EVENTS, SERVER_EVENTS } from "@bucs/shared";
@@ -62,7 +64,13 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
       return;
     }
 
-    matchService.cleanupMatchForRoom(result.value.roomCode);
+    const departureMatchResult = matchService.endMatchForDeparture(
+      result.value.roomCode,
+      result.value.playerId,
+    );
+    if (!departureMatchResult) {
+      matchService.cleanupMatchForRoom(result.value.roomCode);
+    }
     socket.leave(result.value.roomCode);
 
     if (result.value.lobby) {
@@ -70,10 +78,41 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
         lobby: result.value.lobby,
       });
     }
+
+    if (departureMatchResult) {
+      io.to(departureMatchResult.roomCode).emit(SERVER_EVENTS.MATCH_ENDED, {
+        roomCode: departureMatchResult.roomCode,
+        summary: departureMatchResult.summary,
+      });
+    }
   });
 
   socket.on(CLIENT_EVENTS.LOBBY_READY, (payload: LobbyReadyPayload) => {
     const result = lobbyService.setReady(socket.id, payload);
+    if (!result.ok) {
+      socket.emit(SERVER_EVENTS.LOBBY_ERROR, result.error);
+      return;
+    }
+
+    io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
+      lobby: result.value.lobby,
+    });
+  });
+
+  socket.on(CLIENT_EVENTS.MATCH_SELECT_CHARACTER, (payload: MatchSelectCharacterPayload) => {
+    const result = lobbyService.selectCharacter(socket.id, payload);
+    if (!result.ok) {
+      socket.emit(SERVER_EVENTS.LOBBY_ERROR, result.error);
+      return;
+    }
+
+    io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
+      lobby: result.value.lobby,
+    });
+  });
+
+  socket.on(CLIENT_EVENTS.MATCH_SELECT_STAGE, (payload: MatchSelectStagePayload) => {
+    const result = lobbyService.selectStage(socket.id, payload);
     if (!result.ok) {
       socket.emit(SERVER_EVENTS.LOBBY_ERROR, result.error);
       return;
@@ -129,12 +168,27 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
           roomCode,
           snapshot,
         });
-        matchService.startSnapshotLoop(roomCode, ({ roomCode: activeRoomCode, snapshot: nextSnapshot }) => {
-          io.to(activeRoomCode).emit(SERVER_EVENTS.MATCH_SNAPSHOT, {
-            roomCode: activeRoomCode,
-            snapshot: nextSnapshot,
+        matchService.startSnapshotLoop(
+          roomCode,
+          ({ roomCode: activeRoomCode, snapshot: nextSnapshot }) => {
+            io.to(activeRoomCode).emit(SERVER_EVENTS.MATCH_SNAPSHOT, {
+              roomCode: activeRoomCode,
+              snapshot: nextSnapshot,
+            });
+          },
+          ({ roomCode: endedRoomCode, summary }) => {
+            const finishedLobby = lobbyStore.getLobby(endedRoomCode);
+            if (finishedLobby) {
+              io.to(endedRoomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
+                lobby: finishedLobby,
+              });
+            }
+
+            io.to(endedRoomCode).emit(SERVER_EVENTS.MATCH_ENDED, {
+              roomCode: endedRoomCode,
+              summary,
+            });
           });
-        });
       },
     );
   });
@@ -185,7 +239,13 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
       return;
     }
 
-    matchService.cleanupMatchForRoom(result.value.roomCode);
+    const departureMatchResult = matchService.endMatchForDeparture(
+      result.value.roomCode,
+      result.value.playerId,
+    );
+    if (!departureMatchResult) {
+      matchService.cleanupMatchForRoom(result.value.roomCode);
+    }
 
     if (!result.value.lobby) {
       return;
@@ -194,5 +254,12 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
     io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
       lobby: result.value.lobby,
     });
+
+    if (departureMatchResult) {
+      io.to(departureMatchResult.roomCode).emit(SERVER_EVENTS.MATCH_ENDED, {
+        roomCode: departureMatchResult.roomCode,
+        summary: departureMatchResult.summary,
+      });
+    }
   });
 }

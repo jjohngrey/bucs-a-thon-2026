@@ -14,6 +14,8 @@ The server already owns:
 
 - lobby create / join / leave
 - ready state
+- character selection
+- stage selection
 - host start permissions
 - match countdown
 - live `match:snapshot` updates
@@ -23,8 +25,11 @@ The server already owns:
 - stock decrement
 - respawn timer
 - respawn invulnerability
+- automatic win detection when one player remains
+- active-match disconnect handling
 - match end
 - return to lobby
+- stage floor, blast zone, spawn points, and respawn settings from shared content
 
 The UI should render this state, not simulate it again.
 
@@ -58,6 +63,8 @@ Emit:
 - `lobby:leave`
 - `lobby:ready`
 - `lobby:return`
+- `match:select-character`
+- `match:select-stage`
 - `match:start`
 - `match:input`
 - `match:end`
@@ -118,6 +125,24 @@ socket.emit(CLIENT_EVENTS.LOBBY_READY, {
 });
 ```
 
+Select character:
+
+```ts
+socket.emit(CLIENT_EVENTS.MATCH_SELECT_CHARACTER, {
+  roomCode,
+  characterId: "guest-character",
+});
+```
+
+Select stage:
+
+```ts
+socket.emit(CLIENT_EVENTS.MATCH_SELECT_STAGE, {
+  roomCode,
+  stageId: "rooftop",
+});
+```
+
 Leave:
 
 ```ts
@@ -136,6 +161,8 @@ socket.emit(CLIENT_EVENTS.MATCH_START, {
 
 Notes:
 
+- each player selects their own character
+- only the host should select the stage
 - only host should start
 - current backend requires all non-host players to be ready
 - invalid actions return `lobby:error`
@@ -209,6 +236,12 @@ Use snapshot state for:
 - `eliminatedPlayerIds`
 
 Use it to render the results screen.
+
+Important:
+
+- the server can emit `match:ended` automatically when only one player has stocks left
+- the server can also emit `match:ended` if a player leaves or disconnects mid-match
+- client `match:end` is still available, but it is no longer the only end path
 
 Return to lobby:
 
