@@ -19,10 +19,22 @@ type AppState = {
   errorMessage: string;
 };
 
-const SERVER_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
+const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
+const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
 const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
 const DEFAULT_MATCH_CHARACTER_LABEL = "temp-fighter";
+
+function resolveServerUrl(): string {
+  const configuredServerUrl = import.meta.env.VITE_SERVER_URL?.trim();
+  if (!configuredServerUrl) {
+    return DEFAULT_SERVER_URL;
+  }
+
+  return configuredServerUrl.endsWith("/")
+    ? configuredServerUrl.slice(0, -1)
+    : configuredServerUrl;
+}
 
 const appRoot = document.querySelector<HTMLDivElement>("#app");
 if (!appRoot) {

@@ -19,6 +19,13 @@ From `apps/game-client`:
 
 Vite will print the local URL (usually `http://localhost:5173`).
 
+### Backend URL
+
+- Copy `.env.example` to `.env`.
+- Set `VITE_SERVER_URL` to the backend address you want to use.
+- Example: `VITE_SERVER_URL=http://10.43.80.207:3001`
+- If unset, the client falls back to `http(s)://<current-host>:3001`.
+
 ## Build
 
 - `npm run build`
