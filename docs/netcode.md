@@ -52,7 +52,7 @@ This is a simple snapshot model, not rollback netcode.
 7. Server moves match phase to `active`
 8. Server emits an initial `match:snapshot`
 9. Server continues emitting snapshots on a fixed interval
-10. Clients send `match:input` between snapshots
+10. Clients send `match:input` between snapshots, but only while the latest `lobby:state` is still `phase: "in-match"`
 11. If a player leaves during `countdown` or `active`, the server ends the match and emits `match:ended`
 
 ## Current match simulation
@@ -151,3 +151,4 @@ For the current prototype:
 - do not trust client-local positions as final truth
 - do not decide match end locally
 - use `match:ended` to move into results UI
+- stop local input emission and clear local match runtime state on `match:ended` or socket disconnect

@@ -415,14 +415,45 @@ function isLocalBypassActive(): boolean {
   return localBypassIntervalId !== null && state.roomCode === "LOCAL";
 }
 
+function isServerMatchActive(): boolean {
+  return (
+    state.screen === "match" &&
+    state.lobby?.phase === "in-match" &&
+    state.roomCode.length > 0 &&
+    state.roomCode === state.lobby.roomCode &&
+    socket?.connected === true
+  );
+}
+
+function resetServerMatchRuntime(options?: { keepResult?: boolean }): void {
+  state.matchStarting = null;
+  state.matchSnapshot = null;
+  state.inputFrame = 0;
+  matchStartingAtMs = 0;
+  latestSnapshotReceivedAtMs = 0;
+  previousSnapshot = null;
+  localPredictionByPlayerId = {};
+  predictionAccumulatorMs = 0;
+  resetPressedInputs();
+
+  if (!options?.keepResult) {
+    state.matchEnded = null;
+  }
+}
+
 function startInputEmitLoop(): void {
   const tickMs = Math.round(1000 / SERVER_TICK_RATE);
   window.setInterval(() => {
-    if (state.screen !== "match" || !state.roomCode || !socket?.connected) {
+    if (!isServerMatchActive()) {
       return;
     }
 
-    socket.emit(CLIENT_EVENTS.MATCH_INPUT, {
+    const activeSocket = socket;
+    if (!activeSocket) {
+      return;
+    }
+
+    activeSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
       roomCode: state.roomCode,
       inputFrame: state.inputFrame,
       pressed: { ...pressedInput },
@@ -589,15 +620,7 @@ async function leaveAndDisconnectToHome(): Promise<void> {
   state.playerId = "";
   state.selectedCharacterId = null;
   state.lobby = null;
-  state.matchStarting = null;
-  state.matchSnapshot = null;
-  state.matchEnded = null;
-  state.inputFrame = 0;
-  matchStartingAtMs = 0;
-  latestSnapshotReceivedAtMs = 0;
-  previousSnapshot = null;
-  localPredictionByPlayerId = {};
-  predictionAccumulatorMs = 0;
+  resetServerMatchRuntime();
   state.statusMessage = "Disconnected.";
   state.errorMessage = "";
   render();
@@ -887,16 +910,7 @@ function attachSocketListeners(activeSocket: Socket): void {
 
     if (payload.lobby.phase === "waiting" && state.screen === "results") {
       state.screen = "character-select";
-      state.matchStarting = null;
-      state.matchSnapshot = null;
-      state.matchEnded = null;
-      state.inputFrame = 0;
-      matchStartingAtMs = 0;
-      latestSnapshotReceivedAtMs = 0;
-      previousSnapshot = null;
-      localPredictionByPlayerId = {};
-      predictionAccumulatorMs = 0;
-      resetPressedInputs();
+      resetServerMatchRuntime();
       state.statusMessage = "Back in lobby. Pick a character and ready up.";
     }
 
@@ -949,6 +963,7 @@ function attachSocketListeners(activeSocket: Socket): void {
     if (payload.roomCode !== state.roomCode) {
       return;
     }
+    resetServerMatchRuntime({ keepResult: true });
     state.matchEnded = payload.summary;
     state.screen = "results";
     state.statusMessage = "Match ended.";
@@ -968,6 +983,9 @@ function attachSocketListeners(activeSocket: Socket): void {
   });
 
   activeSocket.on(SERVER_EVENTS.LOBBY_ERROR, (payload: { code: string; message: string }) => {
+    if (payload.code === "NOT_IN_LOBBY") {
+      resetServerMatchRuntime();
+    }
     state.errorMessage = `${payload.code}: ${payload.message}`;
     state.statusMessage = "";
     render();
@@ -975,6 +993,9 @@ function attachSocketListeners(activeSocket: Socket): void {
 
   activeSocket.on("disconnect", () => {
     if (state.screen !== "home") {
+      state.lobby = null;
+      state.roomCode = "";
+      resetServerMatchRuntime();
       state.statusMessage = "Disconnected from server.";
       render();
     }
@@ -1005,6 +1026,7 @@ function render(): void {
   document.body.classList.toggle("character-select-active", state.screen === "character-select");
   document.body.classList.toggle("lobby-active", state.screen === "lobby");
   document.body.classList.toggle("countdown-active", state.screen === "countdown");
+  document.body.classList.toggle("match-active", state.screen === "match");
   document.body.classList.toggle("results-active", isResults);
   updateLobbyMusic();
   app.innerHTML = renderScreen();
@@ -1198,23 +1220,20 @@ function renderMatchScreen(): string {
           <div
             class="arena-player arena-player--placeholder"
             style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
-          >
-            <div class="arena-player__label">${escapeHtml(player.displayName)} (loading)</div>
-          </div>
+          ></div>
         `;
       })
       .join("");
 
     return `
-      <main class="shell shell--wide match-screen">
-        <section class="card match-card">
-          <h1>Match</h1>
-          <p>Waiting for snapshot...</p>
+      <main class="match-screen" aria-label="Match view">
+        <section class="match-stage match-stage--loading">
           <div class="arena">
             <div class="arena-floor"></div>
             ${fallingPlatformMarkup}
             ${placeholderPlayers}
           </div>
+          <div class="match-status-chip" aria-live="polite">Loading fighters...</div>
           ${renderMessages()}
         </section>
       </main>
@@ -1244,7 +1263,6 @@ function renderMatchScreen(): string {
             onerror="this.style.display='none'"
             style="transform: scaleX(${facingScale});"
           />
-          <div class="arena-player__label">${escapeHtml(player.displayName)} (${actionState})</div>
         </div>
       `;
     })
@@ -1293,11 +1311,8 @@ function renderMatchScreen(): string {
     .join("");
 
   return `
-    <main class="shell shell--wide match-screen">
-      <section class="card match-card">
-        <h1>Match</h1>
-        <p>Authoritative snapshot rendering with temporary local prediction feel.</p>
-        <p class="controls-note">P1: Arrow keys + J/K. In local bypass, P2: W/A/D + F/G.</p>
+    <main class="match-screen" aria-label="Match view">
+      <section class="match-stage">
         <div class="arena">
           <div class="arena-floor"></div>
           ${fallingPlatformMarkup}
