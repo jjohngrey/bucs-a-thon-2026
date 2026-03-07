@@ -237,6 +237,10 @@ Use snapshot state for:
 - respawn countdown
 - respawn platform visuals
 
+Current client render note:
+
+- the match arena is currently rendered at the same fixed `840 x 360` size used by the client world-to-screen mapping
+
 ### Results
 
 `match:ended` includes:
