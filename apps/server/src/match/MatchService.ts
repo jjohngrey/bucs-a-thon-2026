@@ -75,6 +75,11 @@ export type EndMatchResult = {
   summary: MatchSummary;
 };
 
+export type AutoEndMatchResult = {
+  roomCode: string;
+  summary: MatchSummary;
+};
+
 const DEFAULT_COUNTDOWN_MS = 3000;
 const PLAYER_SPEED_PER_TICK = 6;
 const TICK_DURATION_MS = 1000 / SERVER_TICK_RATE;
@@ -255,6 +260,7 @@ export class MatchService {
   startSnapshotLoop(
     roomCode: string,
     onSnapshot: (payload: { roomCode: string; snapshot: MatchSnapshot }) => void,
+    onMatchEnded: (payload: AutoEndMatchResult) => void,
   ): void {
     const normalizedRoomCode = normalizeRoomCode(roomCode);
     const existingInterval = this.activeMatchIntervals.get(normalizedRoomCode);
@@ -286,6 +292,22 @@ export class MatchService {
       onSnapshot({
         roomCode: normalizedRoomCode,
         snapshot,
+      });
+
+      const summary = getAutoMatchSummary(snapshot);
+      if (!summary) {
+        return;
+      }
+
+      const updatedLobby = this.lobbyStore.updateLobbyPhase(normalizedRoomCode, "finished");
+      if (!updatedLobby) {
+        return;
+      }
+
+      this.cleanupMatchForRoom(normalizedRoomCode);
+      onMatchEnded({
+        roomCode: normalizedRoomCode,
+        summary,
       });
     }, Math.round(1000 / SERVER_TICK_RATE));
 
@@ -595,5 +617,22 @@ function failure(code: string, message: string): MatchServiceError {
       code,
       message,
     },
+  };
+}
+
+function getAutoMatchSummary(snapshot: MatchSnapshot): MatchSummary | null {
+  const survivingPlayers = snapshot.players.filter((player) => player.stocks > 0);
+  if (survivingPlayers.length > 1) {
+    return null;
+  }
+
+  const winnerPlayerId = survivingPlayers[0]?.id ?? null;
+  const eliminatedPlayerIds = snapshot.players
+    .filter((player) => player.id !== winnerPlayerId)
+    .map((player) => player.id);
+
+  return {
+    winnerPlayerId,
+    eliminatedPlayerIds,
   };
 }

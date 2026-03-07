@@ -20,6 +20,7 @@ The backend already simulates:
 - stock decrement
 - respawn timer
 - respawn invulnerability
+- automatic win detection when one player remains
 
 That means the client gameplay code should not become a second source of truth for match results.
 
@@ -124,6 +125,6 @@ Those should all come from the server.
 
 One important thing is still missing on the server:
 
-- automatic win detection from stocks
+- richer character-specific combat timing and stage-specific rules
 
 So for now, the client can still use `match:ended` when the server emits it, but the server does not yet automatically end the match when one player remains.

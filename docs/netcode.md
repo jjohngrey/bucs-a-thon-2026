@@ -71,6 +71,7 @@ Each active tick applies:
 - out-of-play KO fall
 - respawn timer
 - respawn invulnerability countdown
+- automatic winner detection when one player has stocks left
 
 ## Snapshot shape
 
@@ -133,6 +134,7 @@ The server smoke tests currently verify:
 - movement and jump arc
 - combat hit, damage, knockback, and hitstun
 - blast-zone KO, stock loss, and respawn
+- automatic win detection
 - match end
 - return to lobby
 

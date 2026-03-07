@@ -129,12 +129,27 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
           roomCode,
           snapshot,
         });
-        matchService.startSnapshotLoop(roomCode, ({ roomCode: activeRoomCode, snapshot: nextSnapshot }) => {
-          io.to(activeRoomCode).emit(SERVER_EVENTS.MATCH_SNAPSHOT, {
-            roomCode: activeRoomCode,
-            snapshot: nextSnapshot,
+        matchService.startSnapshotLoop(
+          roomCode,
+          ({ roomCode: activeRoomCode, snapshot: nextSnapshot }) => {
+            io.to(activeRoomCode).emit(SERVER_EVENTS.MATCH_SNAPSHOT, {
+              roomCode: activeRoomCode,
+              snapshot: nextSnapshot,
+            });
+          },
+          ({ roomCode: endedRoomCode, summary }) => {
+            const finishedLobby = lobbyStore.getLobby(endedRoomCode);
+            if (finishedLobby) {
+              io.to(endedRoomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
+                lobby: finishedLobby,
+              });
+            }
+
+            io.to(endedRoomCode).emit(SERVER_EVENTS.MATCH_ENDED, {
+              roomCode: endedRoomCode,
+              summary,
+            });
           });
-        });
       },
     );
   });

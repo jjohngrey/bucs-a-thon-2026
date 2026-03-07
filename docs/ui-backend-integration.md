@@ -23,6 +23,7 @@ The server already owns:
 - stock decrement
 - respawn timer
 - respawn invulnerability
+- automatic win detection when one player remains
 - match end
 - return to lobby
 
@@ -209,6 +210,11 @@ Use snapshot state for:
 - `eliminatedPlayerIds`
 
 Use it to render the results screen.
+
+Important:
+
+- the server can emit `match:ended` automatically when only one player has stocks left
+- client `match:end` is still available, but it is no longer the only end path
 
 Return to lobby:
 

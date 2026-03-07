@@ -105,7 +105,8 @@ Important detail:
   - respawn timer
   - respawn invulnerability
   - respawn-platform snapshot fields
-- a client can trigger `match:end` to end the current match lifecycle
+- when only one player has stocks left, the server ends the match automatically
+- a client can still trigger `match:end` as a fallback path
 
 ## 8. If a player leaves or disconnects
 
@@ -119,7 +120,7 @@ Important detail:
 
 ## 9. Match end
 
-- When `match:end` is sent for an active room, the server:
+- When `match:end` is sent for an active room, or when the server detects one player remaining, the server:
   - stops the active match interval
   - removes the in-memory match session
   - updates lobby phase to `finished`

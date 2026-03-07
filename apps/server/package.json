@@ -13,6 +13,7 @@
     "smoke:match-start": "tsx scripts/matchStartSmokeTest.ts",
     "smoke:combat": "tsx scripts/combatSmokeTest.ts",
     "smoke:stocks": "tsx scripts/stocksSmokeTest.ts",
+    "smoke:auto-win": "tsx scripts/autoWinSmokeTest.ts",
     "smoke:match-end": "tsx scripts/matchEndSmokeTest.ts",
     "smoke:return-lobby": "tsx scripts/returnToLobbySmokeTest.ts"
   },

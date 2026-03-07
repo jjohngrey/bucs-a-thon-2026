@@ -61,6 +61,7 @@ Implemented:
 - simple movement, jump, gravity, floor collision
 - basic attack, damage, knockback, and hitstun
 - blast-zone KO, stock decrement, and respawn lifecycle on the server
+- automatic server-side win detection
 - smoke tests for lobby, match start, combat, match end, and return to lobby
 
 Smoke test commands:
@@ -69,5 +70,6 @@ Smoke test commands:
 - `corepack pnpm smoke:match-start`
 - `corepack pnpm smoke:combat`
 - `corepack pnpm smoke:stocks`
+- `corepack pnpm smoke:auto-win`
 - `corepack pnpm smoke:match-end`
 - `corepack pnpm smoke:return-lobby`

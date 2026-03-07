@@ -37,6 +37,7 @@ The server currently supports:
   - respawn timer
   - respawn invulnerability
   - respawn-platform snapshot data
+- automatic win detection when one player has stocks left
 - explicit `match:end` handling with `match:ended` broadcast
 - cleanup of in-memory match sessions when a room breaks
 
@@ -50,6 +51,7 @@ corepack pnpm smoke:lobby
 corepack pnpm smoke:match-start
 corepack pnpm smoke:combat
 corepack pnpm smoke:stocks
+corepack pnpm smoke:auto-win
 corepack pnpm smoke:match-end
 corepack pnpm smoke:return-lobby
 ```
@@ -87,6 +89,13 @@ corepack pnpm smoke:return-lobby
 - the server starts a respawn timer
 - the server respawns the player with invulnerability and respawn-platform data
 
+### `smoke:auto-win`
+
+- repeated KOs can eliminate a player entirely
+- the server detects the last player with stocks left
+- the server emits `match:ended` automatically
+- lobby phase moves to `finished` without client `match:end`
+
 ### `smoke:match-end`
 
 - an active match can be ended explicitly
@@ -103,6 +112,5 @@ corepack pnpm smoke:return-lobby
 
 ## Not done yet
 
-- automatic win detection from stocks
 - reconnect behavior for active matches
 - full character/stage-specific simulation
