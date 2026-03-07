@@ -30,7 +30,7 @@ The server currently supports:
   - one attack input
   - melee hit detection
   - damage application
-  - damage-scaled knockback launch
+  - exponential knockback launch
   - hitstun state
 - authoritative stock and respawn lifecycle:
   - blast-zone KO detection

@@ -39,6 +39,7 @@ This is a simple snapshot model, not rollback netcode.
 - `match:starting`
 - `match:snapshot`
 - `match:ended`
+- `player:disconnected`
 
 ## Match lifecycle
 
@@ -67,7 +68,7 @@ Each active tick applies:
 - attack edge detection
 - melee hit detection
 - damage
-- damage-scaled knockback launch
+- exponential knockback launch
 - hitstun countdown
 - blast-zone KO detection
 - stock decrement

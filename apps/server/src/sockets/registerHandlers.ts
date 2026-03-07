@@ -251,6 +251,11 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
       return;
     }
 
+    io.to(result.value.roomCode).emit(SERVER_EVENTS.PLAYER_DISCONNECTED, {
+      roomCode: result.value.roomCode,
+      playerId: result.value.playerId,
+    });
+
     io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
       lobby: result.value.lobby,
     });

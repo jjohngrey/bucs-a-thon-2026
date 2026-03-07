@@ -104,7 +104,7 @@ Important detail:
   - one attack input
   - melee hit detection
   - damage
-  - damage-scaled knockback launch
+  - exponential knockback launch
   - hitstun
 - the current backend stock lifecycle now applies:
   - blast-zone KO detection
@@ -122,6 +122,7 @@ Important detail:
 - A client can explicitly send `lobby:leave`.
 - Or the socket can disconnect unexpectedly.
 - In either case, the server removes that player from the lobby.
+- The server also emits `player:disconnected` so clients can show a short status message immediately.
 - If that room is in `starting` or `in-match`, the server ends the match immediately.
 - The remaining players receive `match:ended`.
 - The lobby phase moves to `finished`.

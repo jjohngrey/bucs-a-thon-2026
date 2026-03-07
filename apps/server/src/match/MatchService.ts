@@ -751,7 +751,8 @@ function calculateKnockbackMagnitude(
   knockbackGrowth: number,
 ): number {
   const safeDamage = Math.max(0, targetDamage);
-  return baseKnockback + knockbackGrowth * Math.sqrt(safeDamage);
+  const exponentialScale = Math.pow(1.028, safeDamage);
+  return baseKnockback * exponentialScale + knockbackGrowth * Math.sqrt(safeDamage);
 }
 
 function getLaunchVector(

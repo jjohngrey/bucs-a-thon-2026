@@ -60,7 +60,7 @@ Implemented:
 - recurring authoritative snapshots
 - server-side input handling
 - simple movement, jump, gravity, floor collision
-- basic attack, damage, damage-scaled knockback, and hitstun
+- basic attack, damage, exponential knockback, and hitstun
 - blast-zone KO, stock decrement, and respawn lifecycle on the server
 - automatic server-side win detection
 - shared stage and rules content for floor, blast zone, spawns, and respawn settings

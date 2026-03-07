@@ -55,6 +55,7 @@ Listen for:
 - `match:starting`
 - `match:snapshot`
 - `match:ended`
+- `player:disconnected`
 
 Emit:
 
@@ -166,6 +167,7 @@ Notes:
 - only host should start
 - current backend requires all non-host players to be ready
 - invalid actions return `lobby:error`
+- `player:disconnected` can be used to show a temporary lobby status message
 
 ### Countdown
 
