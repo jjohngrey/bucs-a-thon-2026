@@ -1,39 +1,55 @@
 import "./style.css";
+import { CLIENT_EVENTS, SERVER_EVENTS, type LobbyState, type LobbyStatePayload, type MatchStartingPayload, type SessionJoinedPayload } from "@bucs/shared";
+import { io, type Socket } from "socket.io-client";
 
-type Screen = "home" | "join-code" | "character-select" | "lobby";
+type Screen = "home" | "character-select" | "lobby";
 type FlowMode = "create" | "join" | null;
 
 type AppState = {
   screen: Screen;
   mode: FlowMode;
+  isConnecting: boolean;
+  displayNameInput: string;
   joinCodeInput: string;
   roomCode: string;
+  playerId: string;
   selectedCharacterId: string | null;
-  lobbyNote: string;
+  lobby: LobbyState | null;
+  statusMessage: string;
+  errorMessage: string;
 };
 
-const CHARACTER_CHOICES = ["fighter-a", "fighter-b", "fighter-c", "fighter-d"];
+const SERVER_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
 const ROOM_CODE_LENGTH = 6;
+const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
+const DEFAULT_MATCH_CHARACTER_LABEL = "temp-fighter";
 
 const appRoot = document.querySelector<HTMLDivElement>("#app");
-
 if (!appRoot) {
   throw new Error("Missing #app root element.");
 }
 const app = appRoot;
 
+let socket: Socket | null = null;
+let listenersAttached = false;
+
 const state: AppState = {
   screen: "home",
   mode: null,
+  isConnecting: false,
+  displayNameInput: "Player",
   joinCodeInput: "",
   roomCode: "",
+  playerId: "",
   selectedCharacterId: null,
-  lobbyNote: "",
+  lobby: null,
+  statusMessage: "",
+  errorMessage: "",
 };
 
 render();
 
-app.addEventListener("click", (event) => {
+appRoot.addEventListener("click", async (event) => {
   const target = event.target as HTMLElement | null;
   const actionElement = target?.closest<HTMLElement>("[data-action]");
   if (!actionElement) {
@@ -41,86 +57,285 @@ app.addEventListener("click", (event) => {
   }
 
   const action = actionElement.dataset.action;
+
   switch (action) {
-    case "start-create":
-      state.mode = "create";
-      state.roomCode = generateRoomCode();
-      state.joinCodeInput = "";
-      state.selectedCharacterId = null;
-      state.lobbyNote = "";
-      state.screen = "character-select";
+    case "create-lobby":
+      await handleCreateLobby();
       break;
-    case "start-join":
-      state.mode = "join";
-      state.roomCode = "";
-      state.joinCodeInput = "";
-      state.selectedCharacterId = null;
-      state.lobbyNote = "";
-      state.screen = "join-code";
-      break;
-    case "go-home":
-      state.screen = "home";
-      state.mode = null;
-      state.roomCode = "";
-      state.joinCodeInput = "";
-      state.selectedCharacterId = null;
-      state.lobbyNote = "";
-      break;
-    case "continue-join": {
-      const normalized = normalizeRoomCode(state.joinCodeInput);
-      if (normalized.length !== ROOM_CODE_LENGTH) {
-        state.lobbyNote = "Enter a 6-character room code.";
-      } else {
-        state.roomCode = normalized;
-        state.lobbyNote = "";
-        state.screen = "character-select";
-      }
-      break;
-    }
-    case "back-from-character":
-      state.screen = state.mode === "join" ? "join-code" : "home";
-      state.selectedCharacterId = null;
+    case "join-lobby":
+      await handleJoinLobby();
       break;
     case "select-character": {
-      const selectedCharacterId = actionElement.dataset.characterId;
-      if (selectedCharacterId) {
-        state.selectedCharacterId = selectedCharacterId;
+      const characterId = actionElement.dataset.characterId;
+      if (characterId) {
+        state.selectedCharacterId = characterId;
+        state.errorMessage = "";
       }
+      render();
       break;
     }
-    case "to-lobby":
-      if (!state.selectedCharacterId || !state.mode) {
-        break;
-      }
-      state.lobbyNote = "";
-      state.screen = "lobby";
+    case "character-ready":
+      await handleReadyAfterCharacterSelect();
       break;
-    case "lobby-back":
-      state.screen = "character-select";
-      state.lobbyNote = "";
+    case "character-back":
+      await leaveAndDisconnectToHome();
       break;
-    case "host-start":
-      state.lobbyNote = "Host start clicked. Wire this to match:start when backend integration is added.";
+    case "change-character":
+      await handleChangeCharacter();
+      break;
+    case "leave-lobby":
+      await leaveAndDisconnectToHome();
+      break;
+    case "start-match":
+      emitMatchStart();
       break;
     default:
       break;
   }
-
-  render();
 });
 
-app.addEventListener("input", (event) => {
+appRoot.addEventListener("input", (event) => {
   const target = event.target as HTMLElement | null;
   if (!(target instanceof HTMLInputElement)) {
     return;
   }
 
-  if (target.dataset.field === "join-room-code") {
-    state.joinCodeInput = normalizeRoomCode(target.value);
-    state.lobbyNote = "";
-    render();
+  if (target.dataset.field === "display-name") {
+    state.displayNameInput = target.value.slice(0, 24);
+    state.errorMessage = "";
   }
+
+  if (target.dataset.field === "join-code") {
+    state.joinCodeInput = normalizeRoomCode(target.value);
+    state.errorMessage = "";
+  }
+
+  render();
 });
+
+async function handleCreateLobby(): Promise<void> {
+  const displayName = normalizeDisplayName(state.displayNameInput);
+
+  state.mode = "create";
+  state.displayNameInput = displayName;
+  state.errorMessage = "";
+  state.statusMessage = "Connecting...";
+  state.isConnecting = true;
+  render();
+
+  const connected = await ensureConnected();
+  if (!connected) {
+    state.isConnecting = false;
+    state.errorMessage = "Unable to connect to server.";
+    state.statusMessage = "";
+    render();
+    return;
+  }
+
+  socket?.emit(CLIENT_EVENTS.LOBBY_CREATE, { displayName });
+  state.statusMessage = "Creating lobby...";
+  state.isConnecting = false;
+  render();
+}
+
+async function handleJoinLobby(): Promise<void> {
+  const displayName = normalizeDisplayName(state.displayNameInput);
+  const roomCode = normalizeRoomCode(state.joinCodeInput);
+
+  if (roomCode.length !== ROOM_CODE_LENGTH) {
+    state.errorMessage = "Enter a 6-character room code.";
+    render();
+    return;
+  }
+
+  state.mode = "join";
+  state.displayNameInput = displayName;
+  state.joinCodeInput = roomCode;
+  state.errorMessage = "";
+  state.statusMessage = "Connecting...";
+  state.isConnecting = true;
+  render();
+
+  const connected = await ensureConnected();
+  if (!connected) {
+    state.isConnecting = false;
+    state.errorMessage = "Unable to connect to server.";
+    state.statusMessage = "";
+    render();
+    return;
+  }
+
+  socket?.emit(CLIENT_EVENTS.LOBBY_JOIN, { roomCode, displayName });
+  state.statusMessage = "Joining lobby...";
+  state.isConnecting = false;
+  render();
+}
+
+async function handleReadyAfterCharacterSelect(): Promise<void> {
+  if (!state.lobby || !state.selectedCharacterId) {
+    state.errorMessage = "Pick a character first.";
+    render();
+    return;
+  }
+
+  socket?.emit(CLIENT_EVENTS.LOBBY_READY, {
+    roomCode: state.lobby.roomCode,
+    isReady: true,
+  });
+
+  state.screen = "lobby";
+  state.errorMessage = "";
+  state.statusMessage = `Ready set. Match will use ${DEFAULT_MATCH_CHARACTER_LABEL} for now.`;
+  render();
+}
+
+async function handleChangeCharacter(): Promise<void> {
+  if (state.lobby) {
+    socket?.emit(CLIENT_EVENTS.LOBBY_READY, {
+      roomCode: state.lobby.roomCode,
+      isReady: false,
+    });
+  }
+
+  state.screen = "character-select";
+  state.statusMessage = "You are unready. Pick again.";
+  state.errorMessage = "";
+  render();
+}
+
+async function leaveAndDisconnectToHome(): Promise<void> {
+  const currentRoomCode = state.lobby?.roomCode ?? state.roomCode;
+  if (currentRoomCode) {
+    socket?.emit(CLIENT_EVENTS.LOBBY_LEAVE, { roomCode: currentRoomCode });
+  }
+
+  disconnectSocket();
+
+  state.screen = "home";
+  state.mode = null;
+  state.roomCode = "";
+  state.playerId = "";
+  state.selectedCharacterId = null;
+  state.lobby = null;
+  state.statusMessage = "Disconnected.";
+  state.errorMessage = "";
+  render();
+}
+
+function emitMatchStart(): void {
+  if (!state.lobby) {
+    return;
+  }
+
+  socket?.emit(CLIENT_EVENTS.MATCH_START, {
+    roomCode: state.lobby.roomCode,
+  });
+
+  state.errorMessage = "";
+  state.statusMessage = "Host requested match start...";
+  render();
+}
+
+async function ensureConnected(): Promise<boolean> {
+  if (socket?.connected) {
+    return true;
+  }
+
+  if (!socket) {
+    socket = io(SERVER_URL, {
+      transports: ["websocket"],
+      autoConnect: false,
+    });
+  }
+
+  if (!listenersAttached) {
+    attachSocketListeners(socket);
+    listenersAttached = true;
+  }
+
+  return new Promise<boolean>((resolve) => {
+    if (!socket) {
+      resolve(false);
+      return;
+    }
+
+    socket.connect();
+
+    const onConnect = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    const onConnectError = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      resolve(false);
+    }, 4000);
+
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      socket?.off("connect", onConnect);
+      socket?.off("connect_error", onConnectError);
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("connect_error", onConnectError);
+  });
+}
+
+function attachSocketListeners(activeSocket: Socket): void {
+  activeSocket.on(SERVER_EVENTS.SESSION_JOINED, (payload: SessionJoinedPayload) => {
+    state.playerId = payload.playerId;
+    state.errorMessage = "";
+    render();
+  });
+
+  activeSocket.on(SERVER_EVENTS.LOBBY_STATE, (payload: LobbyStatePayload) => {
+    state.lobby = payload.lobby;
+    state.roomCode = payload.lobby.roomCode;
+    state.errorMessage = "";
+
+    if (state.screen === "home") {
+      state.screen = "character-select";
+      state.statusMessage = "Connected. Pick a character and ready up.";
+    }
+
+    render();
+  });
+
+  activeSocket.on(SERVER_EVENTS.MATCH_STARTING, (payload: MatchStartingPayload) => {
+    state.statusMessage = `Match starting in ${Math.ceil(payload.countdownMs / 1000)}s. Using ${DEFAULT_MATCH_CHARACTER_LABEL}.`;
+    render();
+  });
+
+  activeSocket.on(SERVER_EVENTS.LOBBY_ERROR, (payload: { code: string; message: string }) => {
+    state.errorMessage = `${payload.code}: ${payload.message}`;
+    state.statusMessage = "";
+    render();
+  });
+
+  activeSocket.on("disconnect", () => {
+    if (state.screen !== "home") {
+      state.statusMessage = "Disconnected from server.";
+      render();
+    }
+  });
+}
+
+function disconnectSocket(): void {
+  if (!socket) {
+    return;
+  }
+
+  socket.disconnect();
+  socket.removeAllListeners();
+  socket = null;
+  listenersAttached = false;
+}
 
 function render(): void {
   app.innerHTML = renderScreen();
@@ -130,8 +345,6 @@ function renderScreen(): string {
   switch (state.screen) {
     case "home":
       return renderHomeScreen();
-    case "join-code":
-      return renderJoinCodeScreen();
     case "character-select":
       return renderCharacterSelectScreen();
     case "lobby":
@@ -142,43 +355,32 @@ function renderScreen(): string {
 }
 
 function renderHomeScreen(): string {
-  return `
-    <main class="shell">
-      <section class="card">
-        <h1>BUCS Fighter</h1>
-        <p>Choose how to enter a match.</p>
-        <div class="row">
-          <button type="button" data-action="start-create">Create Lobby</button>
-          <button type="button" data-action="start-join">Join Lobby</button>
-        </div>
-      </section>
-    </main>
-  `;
-}
-
-function renderJoinCodeScreen(): string {
-  const normalizedValue = normalizeRoomCode(state.joinCodeInput);
-  const canContinue = normalizedValue.length === ROOM_CODE_LENGTH;
+  const canJoin = normalizeRoomCode(state.joinCodeInput).length === ROOM_CODE_LENGTH;
 
   return `
     <main class="shell">
       <section class="card">
-        <h1>Join Lobby</h1>
-        <p>Enter the room code from the host.</p>
+        <h1>BUCS Fighter MVP</h1>
+        <p>Create or join from this one screen.</p>
+
         <label class="field">
-          Room Code
-          <input
-            data-field="join-room-code"
-            value="${normalizedValue}"
-            maxlength="${ROOM_CODE_LENGTH}"
-            placeholder="ABC123"
-          />
+          Display Name
+          <input data-field="display-name" value="${escapeHtml(state.displayNameInput)}" maxlength="24" placeholder="Player" />
         </label>
-        ${state.lobbyNote ? `<p class="note">${state.lobbyNote}</p>` : ""}
-        <div class="row">
-          <button type="button" data-action="go-home">Back</button>
-          <button type="button" data-action="continue-join" ${canContinue ? "" : "disabled"}>Continue</button>
+
+        <div class="home-actions">
+          <button type="button" data-action="create-lobby" ${state.isConnecting ? "disabled" : ""}>Create Lobby</button>
         </div>
+
+        <div class="inline-join">
+          <label class="field field--inline">
+            Join Code
+            <input data-field="join-code" value="${escapeHtml(normalizeRoomCode(state.joinCodeInput))}" maxlength="${ROOM_CODE_LENGTH}" placeholder="ABC123" />
+          </label>
+          <button type="button" data-action="join-lobby" ${canJoin && !state.isConnecting ? "" : "disabled"}>Join Lobby</button>
+        </div>
+
+        ${renderMessages()}
       </section>
     </main>
   `;
@@ -203,129 +405,86 @@ function renderCharacterSelectScreen(): string {
     <main class="shell">
       <section class="card">
         <h1>Character Select</h1>
-        <p>Placeholder selection. Pick one rectangle.</p>
+        <p>Pick any placeholder. Match currently starts everyone as ${DEFAULT_MATCH_CHARACTER_LABEL}.</p>
         <div class="character-grid">${cards}</div>
         <div class="row">
-          <button type="button" data-action="back-from-character">Back</button>
-          <button type="button" data-action="to-lobby" ${state.selectedCharacterId ? "" : "disabled"}>Continue</button>
+          <button type="button" data-action="character-back">Back</button>
+          <button type="button" data-action="character-ready" ${state.selectedCharacterId ? "" : "disabled"}>Ready</button>
         </div>
+        ${renderMessages()}
       </section>
     </main>
   `;
 }
 
 function renderLobbyScreen(): string {
-  const isHost = state.mode === "create";
-  const selectedCharacterLabel = state.selectedCharacterId ?? "none";
+  const lobby = state.lobby;
+  const players = lobby?.players ?? [];
+  const isHost = Boolean(lobby && state.playerId && lobby.hostPlayerId === state.playerId);
+  const everyoneReady = Boolean(
+    lobby &&
+      lobby.players.length >= 2 &&
+      lobby.players.every((player) => player.id === lobby.hostPlayerId || player.isReady),
+  );
+
+  const playerLines = players
+    .map((player) => {
+      const role = player.id === lobby?.hostPlayerId ? "Host" : "Player";
+      const ready = player.isReady ? "Ready" : "Not Ready";
+      const isMe = player.id === state.playerId ? " (You)" : "";
+      return `<li>${escapeHtml(player.displayName)}${isMe} - ${role} - ${ready}</li>`;
+    })
+    .join("");
 
   return `
     <main class="shell">
       <section class="card">
         <h1>Lobby</h1>
-        <p>Room Code: <strong>${state.roomCode}</strong></p>
-        <ul class="player-list">
-          <li>You (${isHost ? "Host" : "Guest"}) - ${selectedCharacterLabel}</li>
-          <li>Waiting for other players...</li>
-        </ul>
-        ${state.lobbyNote ? `<p class="note">${state.lobbyNote}</p>` : ""}
+        <p>Room Code: <strong>${escapeHtml(state.roomCode)}</strong></p>
+        <p>Local pick: <strong>${escapeHtml(state.selectedCharacterId ?? "none")}</strong></p>
+        <p>Gameplay start character: <strong>${DEFAULT_MATCH_CHARACTER_LABEL}</strong></p>
+
+        <ul class="player-list">${playerLines || "<li>Waiting for players...</li>"}</ul>
+
         <div class="row">
-          <button type="button" data-action="lobby-back">Change Character</button>
-          ${
-            isHost
-              ? '<button type="button" data-action="host-start">Start Match</button>'
-              : '<button type="button" disabled>Waiting For Host</button>'
-          }
+          <button type="button" data-action="change-character">Change Character (Unready)</button>
+          <button type="button" data-action="leave-lobby">Back (Disconnect)</button>
+          <button type="button" data-action="start-match" ${isHost && everyoneReady ? "" : "disabled"}>Start Match</button>
         </div>
+
+        ${renderMessages()}
       </section>
     </main>
   `;
+}
+
+function renderMessages(): string {
+  const lines: string[] = [];
+
+  if (state.statusMessage) {
+    lines.push(`<p class="note note--status">${escapeHtml(state.statusMessage)}</p>`);
+  }
+
+  if (state.errorMessage) {
+    lines.push(`<p class="note note--error">${escapeHtml(state.errorMessage)}</p>`);
+  }
+
+  return lines.join("");
 }
 
 function normalizeRoomCode(input: string): string {
   return input.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, ROOM_CODE_LENGTH);
 }
 
-function generateRoomCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < ROOM_CODE_LENGTH; i += 1) {
-    const index = Math.floor(Math.random() * chars.length);
-    code += chars[index];
-  }
-  return code;
+function normalizeDisplayName(input: string): string {
+  return input.trim().slice(0, 24) || "Player";
 }
 
-type PlayerSnapshot = {
-  grounded: boolean;
-  stocks: number;
-  isOutOfPlay: boolean;
-};
-
-function snapshotPlayers(): Record<string, PlayerSnapshot> {
-  const snapshot: Record<string, PlayerSnapshot> = {};
-  for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
-    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
-    if (!player) {
-      continue;
-    }
-    snapshot[playerId] = {
-      grounded: player.grounded,
-      stocks: player.stocks,
-      isOutOfPlay: player.isOutOfPlay
-    };
-  }
-  return snapshot;
-}
-
-function triggerAudio(input: {
-  previousPlayerStateById: Record<string, PlayerSnapshot>;
-  jumpPressedByPlayerId: Record<string, boolean>;
-  damageHitEvents: DamageHitEvent[];
-}): void {
-  const { previousPlayerStateById, jumpPressedByPlayerId, damageHitEvents } = input;
-
-  const hitTargets = new Set<string>();
-  for (const hitEvent of damageHitEvents) {
-    hitTargets.add(hitEvent.targetPlayerId);
-  }
-  for (const targetPlayerId of hitTargets) {
-    audioSystem.play(getVoiceClipKey(targetPlayerId, "hit"));
-  }
-
-  for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
-    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
-    const previous = previousPlayerStateById[playerId];
-    if (!player || !previous) {
-      continue;
-    }
-
-    if (jumpPressedByPlayerId[playerId] && previous.grounded && !player.grounded) {
-      audioSystem.play("jump");
-    }
-
-    if (previous.stocks > player.stocks) {
-      audioSystem.play(getVoiceClipKey(playerId, "ko"));
-      const knockoutByPlayerId = getOpponentId(playerId);
-      if (knockoutByPlayerId) {
-        audioSystem.play(getVoiceClipKey(knockoutByPlayerId, "win"));
-      }
-    }
-
-    if (previous.isOutOfPlay && !player.isOutOfPlay) {
-      audioSystem.play("respawn");
-    }
-  }
-}
-
-function getVoiceClipKey(playerId: string, event: "hit" | "ko" | "win"): string {
-  return `voice:${playerId}:${event}`;
-}
-
-function getOpponentId(playerId: string): string | null {
-  for (const otherId of MATCH_STATE_EXAMPLE.playerOrder) {
-    if (otherId !== playerId) {
-      return otherId;
-    }
-  }
-  return null;
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }

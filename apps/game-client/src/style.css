@@ -26,7 +26,7 @@ input {
 
 .shell {
   width: 100%;
-  max-width: 720px;
+  max-width: 760px;
 }
 
 .card {
@@ -42,7 +42,7 @@ h1 {
 }
 
 p {
-  margin: 0 0 16px;
+  margin: 0 0 12px;
 }
 
 .row {
@@ -69,7 +69,11 @@ button:disabled {
   display: grid;
   gap: 8px;
   margin-bottom: 16px;
-  max-width: 280px;
+  max-width: 320px;
+}
+
+.field--inline {
+  margin: 0;
 }
 
 input {
@@ -77,6 +81,18 @@ input {
   border-radius: 8px;
   padding: 10px 12px;
   text-transform: uppercase;
+}
+
+.home-actions {
+  margin-bottom: 14px;
+}
+
+.inline-join {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 
 .character-grid {
@@ -104,7 +120,14 @@ input {
 }
 
 .note {
-  margin: 0 0 16px;
+  margin: 0;
+}
+
+.note--status {
+  color: #065f46;
+}
+
+.note--error {
   color: #991b1b;
 }
 
