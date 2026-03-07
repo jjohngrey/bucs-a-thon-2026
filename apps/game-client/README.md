@@ -1,6 +1,8 @@
 # game-client
 
-Phaser browser client for menus, lobby flow, HUD, and match rendering.
+Phaser browser client scaffold.
+
+The backend is currently more complete than the client. Use the docs in `../../docs/` and the shared package in `../../packages/shared/` when wiring UI and networking.
 
 ## Stack
 

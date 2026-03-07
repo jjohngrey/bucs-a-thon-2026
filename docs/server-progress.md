@@ -1,0 +1,108 @@
+# Server Progress
+
+## Current backend state
+
+The server currently supports:
+
+- HTTP health check at `GET /health`
+- Socket.IO connections
+- in-memory lobby storage
+- `lobby:create`
+- `lobby:join`
+- `lobby:leave`
+- `lobby:ready`
+- `lobby:return`
+- `match:start`
+- in-memory match session creation
+- countdown-driven transition from `starting` to `in-match`
+- initial `match:snapshot` emission when the match becomes active
+- recurring `match:snapshot` emission for active matches
+- in-memory `match:input` storage per player
+- basic authoritative movement physics:
+  - horizontal movement
+  - jump
+  - gravity
+  - floor collision
+  - grounded/facing/action state
+- first combat slice:
+  - one attack input
+  - melee hit detection
+  - damage application
+  - knockback impulse
+  - hitstun state
+- authoritative stock and respawn lifecycle:
+  - blast-zone KO detection
+  - stock decrement on KO
+  - out-of-play KO fall
+  - respawn timer
+  - respawn invulnerability
+  - respawn-platform snapshot data
+- explicit `match:end` handling with `match:ended` broadcast
+- cleanup of in-memory match sessions when a room breaks
+
+## Verified commands
+
+Use these commands from the repo root:
+
+```bash
+corepack pnpm check
+corepack pnpm smoke:lobby
+corepack pnpm smoke:match-start
+corepack pnpm smoke:combat
+corepack pnpm smoke:stocks
+corepack pnpm smoke:match-end
+corepack pnpm smoke:return-lobby
+```
+
+## What the smoke tests prove
+
+### `smoke:lobby`
+
+- one client can create a lobby
+- another client can join it
+- both clients receive `lobby:state`
+
+### `smoke:match-start`
+
+- host can start a match
+- non-host must ready up first
+- both clients receive `match:starting`
+- lobby phase moves from `waiting` to `starting`
+- after countdown, lobby phase moves to `in-match`
+- both clients receive an initial `match:snapshot`
+- active matches continue emitting snapshots with increasing server frames
+- server snapshots reflect real movement state changes including jump, gravity, and floor landing
+
+### `smoke:combat`
+
+- a player can move into range and attack
+- the target takes damage
+- the target receives knockback
+- attacker and target action states reflect attack and hitstun
+
+### `smoke:stocks`
+
+- a player can cross the blast zone and lose a stock
+- the server marks the player as out of play
+- the server starts a respawn timer
+- the server respawns the player with invulnerability and respawn-platform data
+
+### `smoke:match-end`
+
+- an active match can be ended explicitly
+- both clients receive `match:ended`
+- lobby phase moves to `finished`
+- the active in-memory match loop is cleaned up
+
+### `smoke:return-lobby`
+
+- after results, the host can reset the room
+- lobby phase moves from `finished` back to `waiting`
+- ready states reset to `false`
+- selected characters and selected stage are cleared
+
+## Not done yet
+
+- automatic win detection from stocks
+- reconnect behavior for active matches
+- full character/stage-specific simulation
