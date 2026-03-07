@@ -79,7 +79,7 @@ export type DepartureMatchResult = {
 };
 
 const DEFAULT_COUNTDOWN_MS = 3000;
-const PLAYER_SPEED_PER_TICK = 6;
+const PLAYER_SPEED_PER_TICK = 20;
 const TICK_DURATION_MS = 1000 / SERVER_TICK_RATE;
 
 export class MatchService {

@@ -142,6 +142,8 @@ let previousSnapshot: MatchSnapshot | null = null;
 let localPredictionByPlayerId: Record<string, { x: number; y: number; vy: number; grounded: boolean }> = {};
 let predictionAccumulatorMs = 0;
 let frameLoopStarted = false;
+let localBypassIntervalId: number | null = null;
+let localBypassServerFrame = 0;
 
 const state: AppState = {
   screen: "home",
@@ -184,6 +186,9 @@ appRoot.addEventListener("click", async (event) => {
   const action = actionElement.dataset.action;
 
   switch (action) {
+    case "quick-test-match":
+      startLocalBypassMatch();
+      break;
     case "create-lobby":
       await handleCreateLobby();
       break;
@@ -415,6 +420,8 @@ async function handleChangeCharacter(): Promise<void> {
 }
 
 async function leaveAndDisconnectToHome(): Promise<void> {
+  stopLocalBypassMatch();
+
   const currentRoomCode = state.lobby?.roomCode ?? state.roomCode;
   if (currentRoomCode) {
     socket?.emit(CLIENT_EVENTS.LOBBY_LEAVE, { roomCode: currentRoomCode });
@@ -440,6 +447,131 @@ async function leaveAndDisconnectToHome(): Promise<void> {
   state.statusMessage = "Disconnected.";
   state.errorMessage = "";
   render();
+}
+
+function startLocalBypassMatch(): void {
+  stopLocalBypassMatch();
+  disconnectSocket();
+
+  const displayName = normalizeDisplayName(state.displayNameInput);
+  const localPlayerId = "local-player";
+  const localCharacterId = state.selectedCharacterId ?? "fighter-1";
+
+  state.mode = null;
+  state.playerId = localPlayerId;
+  state.roomCode = "LOCAL";
+  state.lobby = null;
+  state.matchStarting = null;
+  state.matchEnded = null;
+  state.errorMessage = "";
+  state.statusMessage = "Local bypass match (no server).";
+  state.inputFrame = 0;
+  localBypassServerFrame = 0;
+  predictionAccumulatorMs = 0;
+
+  const initialSnapshot: MatchSnapshot = {
+    serverFrame: localBypassServerFrame,
+    phase: "active",
+    players: [
+      {
+        id: localPlayerId,
+        displayName,
+        characterId: localCharacterId,
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        grounded: true,
+        damage: 0,
+        stocks: 3,
+        isOutOfPlay: false,
+        respawnTimerMs: 0,
+        respawnInvulnerabilityMs: 0,
+        respawnPlatformCenterX: null,
+        respawnPlatformY: null,
+        respawnPlatformWidth: 0,
+        facing: "right",
+        action: "idle",
+      },
+    ],
+  };
+
+  state.matchSnapshot = initialSnapshot;
+  state.screen = "match";
+  localPredictionByPlayerId = {
+    [localPlayerId]: {
+      x: 0,
+      y: 0,
+      vy: 0,
+      grounded: true,
+    },
+  };
+  render();
+
+  const tickMs = Math.round(1000 / SERVER_TICK_RATE);
+  localBypassIntervalId = window.setInterval(() => {
+    const current = state.matchSnapshot;
+    if (!current || state.screen !== "match") {
+      return;
+    }
+    state.matchSnapshot = advanceLocalBypassSnapshot(current);
+  }, tickMs);
+}
+
+function stopLocalBypassMatch(): void {
+  if (localBypassIntervalId !== null) {
+    window.clearInterval(localBypassIntervalId);
+    localBypassIntervalId = null;
+  }
+}
+
+function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
+  const me = previous.players[0];
+  if (!me) {
+    return previous;
+  }
+
+  const horizontalVelocity =
+    pressedInput.left && !pressedInput.right
+      ? -LOCAL_SPEED_PER_TICK
+      : pressedInput.right && !pressedInput.left
+        ? LOCAL_SPEED_PER_TICK
+        : 0;
+
+  const jumped = pressedInput.jump && me.grounded;
+  const verticalVelocity = jumped ? LOCAL_JUMP_VELOCITY : me.vy + LOCAL_GRAVITY_PER_TICK;
+  const nextY = me.y + verticalVelocity;
+  const grounded = nextY >= 0;
+  const resolvedY = grounded ? 0 : nextY;
+  const resolvedVy = grounded ? 0 : verticalVelocity;
+  const facing = horizontalVelocity < 0 ? "left" : horizontalVelocity > 0 ? "right" : me.facing;
+  const action = pressedInput.attack
+    ? "attack"
+    : grounded
+      ? horizontalVelocity === 0
+        ? "idle"
+        : "run"
+      : resolvedVy < 0
+        ? "jump"
+        : "fall";
+
+  localBypassServerFrame += 1;
+  return {
+    serverFrame: localBypassServerFrame,
+    phase: "active",
+    players: [
+      {
+        ...me,
+        x: me.x + horizontalVelocity,
+        y: resolvedY,
+        vx: horizontalVelocity,
+        vy: resolvedVy,
+        grounded,
+        facing,
+        action,
+      },
+    ],
+  };
 }
 
 function emitMatchStart(): void {
@@ -642,6 +774,7 @@ function renderHomeScreen(): string {
 
         <div class="home-actions">
           <button type="button" data-action="create-lobby" ${state.isConnecting ? "disabled" : ""}>Create Lobby</button>
+          <button type="button" data-action="quick-test-match" ${state.isConnecting ? "disabled" : ""}>Quick Test Match (Local)</button>
         </div>
 
         <div class="inline-join">

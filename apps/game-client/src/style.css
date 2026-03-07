@@ -175,11 +175,9 @@ input {
 
 .arena-player {
   position: absolute;
-  width: 74px;
-  height: 92px;
-  border: 2px solid #1f2937;
+  width: 85px;
+  height: 196px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.85);
   overflow: hidden;
 }
 
