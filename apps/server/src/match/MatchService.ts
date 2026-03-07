@@ -14,6 +14,7 @@ import {
   DEFAULT_STAGE,
   DEFAULT_ATTACK_DAMAGE,
   DEFAULT_ATTACK_BASE_KNOCKBACK,
+  DEFAULT_ATTACK_COOLDOWN_TICKS,
   DEFAULT_ATTACK_HEIGHT,
   DEFAULT_ATTACK_KNOCKBACK_GROWTH,
   DEFAULT_ATTACK_LAUNCH_ANGLE_DEGREES,
@@ -22,6 +23,7 @@ import {
   DEFAULT_HITSTUN_TICKS,
   DEFAULT_JUMP_VELOCITY,
   DEFAULT_KICK_BASE_KNOCKBACK,
+  DEFAULT_KICK_COOLDOWN_TICKS,
   DEFAULT_KICK_DAMAGE,
   DEFAULT_KICK_HEIGHT,
   DEFAULT_KICK_HITSTUN_TICKS,
@@ -295,6 +297,7 @@ export class MatchService {
         runtimeState.latestInputsByPlayerId,
         runtimeState.previousInputsByPlayerId,
         runtimeState.hitstunTicksByPlayerId,
+        runtimeState.attackCooldownTicksByPlayerId,
         runtimeState.session,
       );
 
@@ -440,6 +443,7 @@ function advanceSnapshot(
     }
   >,
   hitstunTicksByPlayerId: Record<string, number>,
+  attackCooldownTicksByPlayerId: Record<string, number>,
   session: MatchSession,
 ): MatchSnapshot {
   const nextPlayers: PlayerMatchState[] = previous.players.map((player) => {
@@ -530,13 +534,24 @@ function advanceSnapshot(
     hitstunTicksByPlayerId[playerId] = Math.max(0, (hitstunTicksByPlayerId[playerId] ?? 0) - 1);
   }
 
+  for (const playerId of Object.keys(attackCooldownTicksByPlayerId)) {
+    attackCooldownTicksByPlayerId[playerId] = Math.max(
+      0,
+      (attackCooldownTicksByPlayerId[playerId] ?? 0) - 1,
+    );
+  }
+
   for (const attacker of nextPlayers) {
     const currentInput = latestInputsByPlayerId[attacker.id];
     const previousInput = previousInputsByPlayerId[attacker.id];
     const attackTriggered = Boolean(currentInput?.attack && !previousInput?.attack);
     const kickTriggered = Boolean(currentInput?.kick && !previousInput?.kick);
     const specialTriggered = Boolean(currentInput?.special && !previousInput?.special);
+    const attackOnCooldown = (attackCooldownTicksByPlayerId[attacker.id] ?? 0) > 0;
     if ((!attackTriggered && !kickTriggered && !specialTriggered) || attacker.action === PLAYER_ACTIONS.HITSTUN) {
+      continue;
+    }
+    if (attackOnCooldown && (attackTriggered || kickTriggered)) {
       continue;
     }
 
@@ -548,6 +563,7 @@ function advanceSnapshot(
     const attackProfile = kickTriggered
         ? {
           action: PLAYER_ACTIONS.KICK,
+          cooldownTicks: DEFAULT_KICK_COOLDOWN_TICKS,
           range: DEFAULT_KICK_RANGE,
           height: DEFAULT_KICK_HEIGHT,
           damage: DEFAULT_KICK_DAMAGE,
@@ -558,6 +574,7 @@ function advanceSnapshot(
         }
       : {
           action: PLAYER_ACTIONS.ATTACK,
+          cooldownTicks: DEFAULT_ATTACK_COOLDOWN_TICKS,
           range: DEFAULT_ATTACK_RANGE,
           height: DEFAULT_ATTACK_HEIGHT,
           damage: DEFAULT_ATTACK_DAMAGE,
@@ -568,6 +585,7 @@ function advanceSnapshot(
         };
 
     attacker.action = attackProfile.action;
+    attackCooldownTicksByPlayerId[attacker.id] = attackProfile.cooldownTicks;
 
     const target = nextPlayers.find((candidate) => {
       if (candidate.id === attacker.id) {
