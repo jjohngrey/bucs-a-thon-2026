@@ -80,6 +80,7 @@ export type DepartureMatchResult = {
 
 const DEFAULT_COUNTDOWN_MS = 3000;
 const PLAYER_SPEED_PER_TICK = 20;
+const MAX_FALL_SPEED_PER_TICK = 12;
 const TICK_DURATION_MS = 1000 / SERVER_TICK_RATE;
 
 export class MatchService {
@@ -478,9 +479,7 @@ function advanceSnapshot(
         : player.vx * 0.85
       : horizontalVelocityFromInput;
     const jumped = Boolean(input?.jump && player.grounded && !inHitstun);
-    const verticalVelocity = jumped
-      ? DEFAULT_JUMP_VELOCITY
-      : player.vy + DEFAULT_GRAVITY_PER_TICK;
+    const verticalVelocity = jumped ? DEFAULT_JUMP_VELOCITY : Math.min(player.vy + DEFAULT_GRAVITY_PER_TICK, MAX_FALL_SPEED_PER_TICK);
     const nextY = player.y + verticalVelocity;
     const grounded = nextY >= session.stage.floorY;
     const resolvedY = grounded ? session.stage.floorY : nextY;
