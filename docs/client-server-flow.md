@@ -89,6 +89,12 @@ This is the plain-English version of how the client and server talk to each othe
   - jump
   - gravity
   - floor collision
+- the current backend combat simulation now applies:
+  - one attack input
+  - melee hit detection
+  - damage
+  - knockback
+  - hitstun
 - a client can trigger `match:end` to end the current match lifecycle
 
 The live gameplay loop is still the next step:

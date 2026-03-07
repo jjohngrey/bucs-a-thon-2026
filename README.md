@@ -95,6 +95,7 @@ Implemented:
 - initial `match:snapshot` emission on match activation
 - recurring active-match snapshots and in-memory input handling
 - basic authoritative movement physics on the server
+- first server-side combat slice: attack, hit detection, damage, knockback
 - explicit `match:end` and `match:ended` flow
 - return-to-lobby reset flow after results
 - smoke tests for lobby and match start

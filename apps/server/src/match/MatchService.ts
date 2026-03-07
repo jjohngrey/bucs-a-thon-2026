@@ -10,9 +10,15 @@ import type {
   PlayerMatchState,
 } from "@bucs/shared";
 import {
+  DEFAULT_ATTACK_DAMAGE,
+  DEFAULT_ATTACK_HEIGHT,
+  DEFAULT_ATTACK_RANGE,
   DEFAULT_FLOOR_Y,
   DEFAULT_GRAVITY_PER_TICK,
+  DEFAULT_HITSTUN_TICKS,
   DEFAULT_JUMP_VELOCITY,
+  DEFAULT_KNOCKBACK_X,
+  DEFAULT_KNOCKBACK_Y,
   DEFAULT_STAGE_ID,
   DEFAULT_STOCK_COUNT,
   PLAYER_ACTIONS,
@@ -261,9 +267,12 @@ export class MatchService {
           })),
         ),
         runtimeState.latestInputsByPlayerId,
+        runtimeState.previousInputsByPlayerId,
+        runtimeState.hitstunTicksByPlayerId,
       );
 
       this.matchStore.updateLatestSnapshot(normalizedRoomCode, snapshot);
+      this.matchStore.commitInputs(normalizedRoomCode);
       onSnapshot({
         roomCode: normalizedRoomCode,
         snapshot,
@@ -338,51 +347,112 @@ function advanceSnapshot(
       special: boolean;
     }
   >,
+  previousInputsByPlayerId: Record<
+    string,
+    {
+      left: boolean;
+      right: boolean;
+      jump: boolean;
+      attack: boolean;
+      special: boolean;
+    }
+  >,
+  hitstunTicksByPlayerId: Record<string, number>,
 ): MatchSnapshot {
-  return {
-    serverFrame: previous.serverFrame + 1,
-    phase: "active",
-    players: previous.players.map((player) => {
-      const input = latestInputsByPlayerId[player.id];
-      const horizontalVelocity =
-        input?.left && !input.right
-          ? -PLAYER_SPEED_PER_TICK
-          : input?.right && !input.left
-            ? PLAYER_SPEED_PER_TICK
-            : 0;
-      const jumped = Boolean(input?.jump && player.grounded);
-      const verticalVelocity = jumped
-        ? DEFAULT_JUMP_VELOCITY
-        : player.vy + DEFAULT_GRAVITY_PER_TICK;
-      const nextY = player.y + verticalVelocity;
-      const grounded = nextY >= DEFAULT_FLOOR_Y;
-      const resolvedY = grounded ? DEFAULT_FLOOR_Y : nextY;
-      const resolvedVy = grounded ? 0 : verticalVelocity;
-      const action = grounded
+  const nextPlayers: PlayerMatchState[] = previous.players.map((player) => {
+    const input = latestInputsByPlayerId[player.id];
+    const inHitstun = (hitstunTicksByPlayerId[player.id] ?? 0) > 0;
+    const horizontalVelocityFromInput =
+      input?.left && !input.right
+        ? -PLAYER_SPEED_PER_TICK
+        : input?.right && !input.left
+          ? PLAYER_SPEED_PER_TICK
+          : 0;
+    const horizontalVelocity = inHitstun
+      ? Math.abs(player.vx) < 0.5
+        ? 0
+        : player.vx * 0.85
+      : horizontalVelocityFromInput;
+    const jumped = Boolean(input?.jump && player.grounded && !inHitstun);
+    const verticalVelocity = jumped
+      ? DEFAULT_JUMP_VELOCITY
+      : player.vy + DEFAULT_GRAVITY_PER_TICK;
+    const nextY = player.y + verticalVelocity;
+    const grounded = nextY >= DEFAULT_FLOOR_Y;
+    const resolvedY = grounded ? DEFAULT_FLOOR_Y : nextY;
+    const resolvedVy = grounded ? 0 : verticalVelocity;
+    const facing =
+      horizontalVelocity < 0
+        ? "left"
+        : horizontalVelocity > 0
+          ? "right"
+          : player.facing;
+    const action: PlayerMatchState["action"] = inHitstun
+      ? PLAYER_ACTIONS.HITSTUN
+      : grounded
         ? horizontalVelocity === 0
           ? PLAYER_ACTIONS.IDLE
           : PLAYER_ACTIONS.RUN
         : resolvedVy < 0
           ? PLAYER_ACTIONS.JUMP
           : PLAYER_ACTIONS.FALL;
-      const facing =
-        horizontalVelocity < 0
-          ? "left"
-          : horizontalVelocity > 0
-            ? "right"
-            : player.facing;
 
-      return {
-        ...player,
-        x: player.x + horizontalVelocity,
-        y: resolvedY,
-        vx: horizontalVelocity,
-        vy: resolvedVy,
-        grounded,
-        facing,
-        action,
-      };
-    }),
+    return {
+      ...player,
+      x: player.x + horizontalVelocity,
+      y: resolvedY,
+      vx: horizontalVelocity,
+      vy: resolvedVy,
+      grounded,
+      facing,
+      action,
+    };
+  });
+
+  for (const playerId of Object.keys(hitstunTicksByPlayerId)) {
+    hitstunTicksByPlayerId[playerId] = Math.max(0, (hitstunTicksByPlayerId[playerId] ?? 0) - 1);
+  }
+
+  for (const attacker of nextPlayers) {
+    const currentInput = latestInputsByPlayerId[attacker.id];
+    const previousInput = previousInputsByPlayerId[attacker.id];
+    const attackTriggered = Boolean(currentInput?.attack && !previousInput?.attack);
+    if (!attackTriggered || attacker.action === PLAYER_ACTIONS.HITSTUN) {
+      continue;
+    }
+
+    attacker.action = PLAYER_ACTIONS.ATTACK;
+
+    const target = nextPlayers.find((candidate) => {
+      if (candidate.id === attacker.id) {
+        return false;
+      }
+
+      const dx = candidate.x - attacker.x;
+      const withinFacing =
+        attacker.facing === "right" ? dx >= 0 && dx <= DEFAULT_ATTACK_RANGE : dx <= 0 && dx >= -DEFAULT_ATTACK_RANGE;
+      const withinHeight = Math.abs(candidate.y - attacker.y) <= DEFAULT_ATTACK_HEIGHT;
+      return withinFacing && withinHeight;
+    });
+
+    if (!target) {
+      continue;
+    }
+
+    target.damage += DEFAULT_ATTACK_DAMAGE;
+    target.vx = attacker.facing === "right" ? DEFAULT_KNOCKBACK_X : -DEFAULT_KNOCKBACK_X;
+    target.vy = DEFAULT_KNOCKBACK_Y;
+    target.grounded = false;
+    target.y = Math.min(target.y, DEFAULT_FLOOR_Y - 1);
+    target.facing = attacker.facing === "right" ? "left" : "right";
+    target.action = PLAYER_ACTIONS.HITSTUN;
+    hitstunTicksByPlayerId[target.id] = DEFAULT_HITSTUN_TICKS;
+  }
+
+  return {
+    serverFrame: previous.serverFrame + 1,
+    phase: "active",
+    players: nextPlayers,
   };
 }
 

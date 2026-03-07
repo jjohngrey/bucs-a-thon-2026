@@ -30,6 +30,19 @@ export class MatchStore {
           },
         ]),
       ),
+      previousInputsByPlayerId: Object.fromEntries(
+        match.playerIds.map((playerId) => [
+          playerId,
+          {
+            left: false,
+            right: false,
+            jump: false,
+            attack: false,
+            special: false,
+          },
+        ]),
+      ),
+      hitstunTicksByPlayerId: Object.fromEntries(match.playerIds.map((playerId) => [playerId, 0])),
       latestSnapshot: null,
     });
     return match;
@@ -66,6 +79,16 @@ export class MatchStore {
     }
 
     runtimeState.latestSnapshot = snapshot;
+    return runtimeState;
+  }
+
+  commitInputs(roomCode: string): MatchRuntimeState | undefined {
+    const runtimeState = this.matchesByRoomCode.get(roomCode);
+    if (!runtimeState) {
+      return undefined;
+    }
+
+    runtimeState.previousInputsByPlayerId = structuredClone(runtimeState.latestInputsByPlayerId);
     return runtimeState;
   }
 

@@ -13,6 +13,8 @@ export type MatchSession = {
 export type MatchRuntimeState = {
   session: MatchSession;
   latestInputsByPlayerId: Record<string, MatchInputPayload["pressed"]>;
+  previousInputsByPlayerId: Record<string, MatchInputPayload["pressed"]>;
+  hitstunTicksByPlayerId: Record<string, number>;
   latestSnapshot: MatchSnapshot | null;
 };
 

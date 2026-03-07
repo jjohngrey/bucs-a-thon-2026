@@ -23,6 +23,12 @@ The server currently supports:
   - gravity
   - floor collision
   - grounded/facing/action state
+- first combat slice:
+  - one attack input
+  - melee hit detection
+  - damage application
+  - knockback impulse
+  - hitstun state
 - explicit `match:end` handling with `match:ended` broadcast
 - host-triggered return to lobby after results
 - cleanup of in-memory match sessions when a room breaks
@@ -63,6 +69,13 @@ corepack pnpm smoke:match-start
 - lobby phase moves to `finished`
 - the active in-memory match loop is cleaned up
 
+### `smoke:combat`
+
+- a player can move into range and attack
+- the target takes damage
+- the target receives knockback
+- attacker/target action states reflect attack and hitstun
+
 ### `smoke:return-lobby`
 
 - after results, the host can reset the room
@@ -73,7 +86,5 @@ corepack pnpm smoke:match-start
 ## Not Done Yet
 
 - combat simulation
-- hit detection
-- damage / knockback
 - stocks and respawn rules
 - reconnect behavior for active matches
