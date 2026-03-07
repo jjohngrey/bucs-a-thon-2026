@@ -164,14 +164,22 @@ let localBypassServerFrame = 0;
 const LOBBY_MUSIC_SCREENS: Screen[] = ["home", "character-select", "lobby"];
 const lobbyMusic = new Audio("/audio/music/lobby.mp3");
 lobbyMusic.loop = true;
+let lobbyMusicMuted = false;
 
 function updateLobbyMusic(): void {
   const shouldPlay = LOBBY_MUSIC_SCREENS.includes(state.screen);
-  if (shouldPlay && lobbyMusic.paused) {
+  lobbyMusic.muted = lobbyMusicMuted;
+  if (shouldPlay && lobbyMusic.paused && !lobbyMusicMuted) {
     lobbyMusic.play().catch(() => {});
   } else if (!shouldPlay && !lobbyMusic.paused) {
     lobbyMusic.pause();
   }
+}
+
+function renderMuteButton(): string {
+  const label = lobbyMusicMuted ? "Unmute" : "Mute";
+  const src = lobbyMusicMuted ? "/assets/home/volume-mute.png" : "/assets/home/volume.png";
+  return `<button type="button" class="mute-btn" data-action="toggle-mute" aria-label="${label}" title="${label}"><img src="${src}" alt="" class="mute-btn-icon" /></button>`;
 }
 
 const state: AppState = {
@@ -247,6 +255,11 @@ appRoot.addEventListener("click", async (event) => {
       break;
     case "start-match":
       emitMatchStart();
+      break;
+    case "toggle-mute":
+      lobbyMusicMuted = !lobbyMusicMuted;
+      lobbyMusic.muted = lobbyMusicMuted;
+      render();
       break;
     default:
       break;
@@ -809,6 +822,7 @@ function renderHomeScreen(): string {
   const canJoin = normalizeRoomCode(state.joinCodeInput).length === ROOM_CODE_LENGTH;
 
   return `
+    ${renderMuteButton()}
     <main class="shell home-screen">
       <section class="card home-card">
         <div class="home-title">
@@ -860,6 +874,7 @@ function renderCharacterSelectScreen(): string {
   }).join("");
 
   return `
+    ${renderMuteButton()}
     <main class="shell character-select-screen">
       <section class="card character-select-card">
         <h1 class="character-select-title">Character Select</h1>
@@ -911,6 +926,7 @@ function renderLobbyScreen(): string {
     : "<li class=\"lobby-player lobby-player--empty\">Waiting for players...</li>";
 
   return `
+    ${renderMuteButton()}
     <main class="shell lobby-screen">
       <section class="card lobby-card">
         <h1 class="lobby-title">Lobby</h1>
