@@ -1,10 +1,12 @@
 import type {
   LobbyErrorPayload,
+  MatchSnapshot,
   MatchSession,
   MatchStartPayload,
   MatchStartingPayload,
+  PlayerMatchState,
 } from "@bucs/shared";
-import { DEFAULT_STAGE_ID } from "@bucs/shared";
+import { DEFAULT_STAGE_ID, DEFAULT_STOCK_COUNT, PLAYER_ACTIONS } from "@bucs/shared";
 import { LobbyStore } from "../lobby/LobbyStore.js";
 import { normalizeRoomCode } from "../lobby/RoomCode.js";
 import { MatchStore } from "./MatchStore.js";
@@ -29,6 +31,7 @@ export type StartMatchResult = {
 export type ActivateMatchResult = {
   roomCode: string;
   match: MatchSession;
+  snapshot: MatchSnapshot;
 };
 
 export type CleanupMatchResult = {
@@ -149,6 +152,7 @@ export class MatchService {
       onActivated({
         roomCode,
         match: updatedMatch,
+        snapshot: createInitialSnapshot(lobby.players),
       });
     }, countdownMs);
 
@@ -168,6 +172,41 @@ export class MatchService {
       removed: this.matchStore.removeMatch(normalizedRoomCode),
     };
   }
+}
+
+function createInitialSnapshot(players: Array<{
+  id: string;
+  displayName: string;
+  selectedCharacterId: string | null;
+}>): MatchSnapshot {
+  return {
+    serverFrame: 0,
+    phase: "active",
+    players: players.map((player, index) => createInitialPlayerState(player, index)),
+  };
+}
+
+function createInitialPlayerState(
+  player: {
+    id: string;
+    displayName: string;
+    selectedCharacterId: string | null;
+  },
+  index: number,
+): PlayerMatchState {
+  return {
+    id: player.id,
+    displayName: player.displayName,
+    characterId: player.selectedCharacterId ?? `placeholder-${index + 1}`,
+    x: index * 160,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    damage: 0,
+    stocks: DEFAULT_STOCK_COUNT,
+    facing: index % 2 === 0 ? "right" : "left",
+    action: PLAYER_ACTIONS.IDLE,
+  };
 }
 
 function failure(code: string, message: string): MatchServiceError {

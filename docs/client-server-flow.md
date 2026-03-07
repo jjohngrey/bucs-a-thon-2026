@@ -81,12 +81,13 @@ This is the plain-English version of how the client and server talk to each othe
   - lobby phase becomes `in-match`
   - match phase becomes `active`
   - the server broadcasts a fresh `lobby:state`
+  - the server emits an initial `match:snapshot`
 
 The live gameplay loop is still the next step:
 
 - clients send `match:input`
 - server advances the match
-- server broadcasts `match:snapshot`
+- server broadcasts recurring `match:snapshot`
 - clients render and reconcile from those snapshots
 
 ## 8. If a player leaves or disconnects

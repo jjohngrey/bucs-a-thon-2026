@@ -92,6 +92,7 @@ Implemented:
 - lobby create/join/leave/ready flow
 - in-memory match session creation
 - countdown transition from `starting` to `in-match`
+- initial `match:snapshot` emission on match activation
 - smoke tests for lobby and match start
 
 Checked:
