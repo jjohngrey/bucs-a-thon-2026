@@ -1,8 +1,6 @@
 # bucs-a-thon-2026
 
-Planning docs live in `docs/` for the initial `TypeScript + Phaser + Node + WebSockets` architecture.
-
-Implementation packages will live under:
+Small multiplayer game repo with:
 
 - `apps/game-client`
 - `apps/server`
@@ -12,57 +10,28 @@ Implementation packages will live under:
 
 Right now the repo contains:
 
-- planning docs in `docs/`
-- a real shared TypeScript package in `packages/shared`
-- placeholder app roots for the future Phaser client and Node server
+- a working Node + Socket.IO backend in `apps/server`
+- a shared contract package in `packages/shared`
+- an early Vite + Phaser client scaffold in `apps/game-client`
+- current docs in `docs/`
 
 ## Where To Read First
 
-- `docs/execution-plan.md`
-- `docs/folder-structure.md`
+- `docs/architecture.md`
+- `docs/client-server-flow.md`
 - `docs/netcode.md`
 - `docs/server-progress.md`
+- `docs/ui-backend-integration.md`
 
-## Shared Package
+## Build and run
 
-`packages/shared` is the contract package for both client and server. It contains:
-
-- socket event names
-- payload types
-- lobby/match/player types
-- core gameplay and network constants
-
-Important entrypoint:
-
-- `packages/shared/src/index.ts`
-
-## Build
-
-Build the shared package directly with TypeScript:
-
-```bash
-tsc -p packages/shared/tsconfig.json
-```
-
-Or use the workspace command through Corepack:
-
-```bash
-corepack pnpm build:shared
-```
-
-Or directly:
-
-```bash
-corepack pnpm --filter @bucs/shared build
-```
-
-Build the current checked-in backend pieces:
+Build shared and server:
 
 ```bash
 corepack pnpm check
 ```
 
-Run the server locally:
+Run the server:
 
 ```bash
 corepack pnpm dev:server
@@ -84,31 +53,21 @@ Expected response:
 
 Implemented:
 
-- `packages/shared` contract package
-- root workspace config
-- `apps/server` bootstrap package
-- HTTP health endpoint
-- Socket.IO server wiring
-- lobby create/join/leave/ready flow
-- in-memory match session creation
-- countdown transition from `starting` to `in-match`
-- initial `match:snapshot` emission on match activation
-- recurring active-match snapshots and in-memory input handling
-- basic authoritative movement physics on the server
-- first server-side combat slice: attack, hit detection, damage, knockback
-- explicit `match:end` and `match:ended` flow
-- return-to-lobby reset flow after results
-- smoke tests for lobby and match start
+- health endpoint
+- lobby create, join, leave, ready, and return
+- match start, countdown, activation, and end
+- recurring authoritative snapshots
+- server-side input handling
+- simple movement, jump, gravity, floor collision
+- basic attack, damage, knockback, and hitstun
+- blast-zone KO, stock decrement, and respawn lifecycle on the server
+- smoke tests for lobby, match start, combat, match end, and return to lobby
 
-Checked:
+Smoke test commands:
 
-- `corepack pnpm check`
 - `corepack pnpm smoke:lobby`
 - `corepack pnpm smoke:match-start`
-
-## Team Starting Points
-
-- Server owner: `packages/shared/src/protocol` then `apps/server`
-- Gameplay owner: `packages/shared/src/types` then `apps/game-client/src/game`
-- UI owner: `docs/execution-plan.md` then `apps/game-client`
-- Content owner: `docs/mvp.md` then `packages/shared/src/content` and client assets
+- `corepack pnpm smoke:combat`
+- `corepack pnpm smoke:stocks`
+- `corepack pnpm smoke:match-end`
+- `corepack pnpm smoke:return-lobby`

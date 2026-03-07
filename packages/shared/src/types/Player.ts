@@ -34,6 +34,12 @@ export type PlayerMatchState = {
   grounded: boolean;
   damage: number;
   stocks: number;
+  isOutOfPlay: boolean;
+  respawnTimerMs: number;
+  respawnInvulnerabilityMs: number;
+  respawnPlatformCenterX: number | null;
+  respawnPlatformY: number | null;
+  respawnPlatformWidth: number;
   facing: FacingDirection;
   action: PlayerAction;
 };

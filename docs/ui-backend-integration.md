@@ -15,12 +15,9 @@ It explains how to talk to the backend today without digging through the server 
 The UI should:
 
 - open one Socket.IO connection when the game/app loads
-- keep track of:
-  - `playerId` from `session:joined`
-  - latest `lobby:state`
-  - latest `match:snapshot`
-  - any `lobby:error`
+- keep track of `playerId`, latest `lobby:state`, latest `match:snapshot`, and any `lobby:error`
 - render screens from server state instead of inventing local truth
+- treat stocks, KO state, and respawn state as backend-owned data
 
 ## Recommended client setup
 
@@ -187,7 +184,7 @@ If start is invalid, expect:
 Common reasons:
 
 - not enough players
-- not all players are ready
+- not all non-host players are ready
 - caller is not host
 
 ### 8. Countdown / match transition
@@ -219,6 +216,7 @@ Current server behavior:
 - sends an initial snapshot when the countdown finishes
 - keeps sending snapshots on a server tick
 - stores player inputs from `match:input`
+- applies movement, combat, blast-zone KO, stock loss, and respawn on the server
 
 Send local input like:
 
@@ -236,7 +234,20 @@ socket.emit(CLIENT_EVENTS.MATCH_INPUT, {
 });
 ```
 
-For now, treat each `match:snapshot` as the source of truth for player positions and match phase.
+For now, treat each `match:snapshot` as the source of truth for:
+
+- player positions and velocities
+- match phase
+- damage and stocks
+- KO / out-of-play state
+- respawn timer and invulnerability
+- respawn platform visuals
+
+Client-side draft systems that should be disabled or removed once the socket snapshot is wired:
+
+- `StockSystem`
+- `RespawnSystem`
+- local blast-zone KO checks
 
 ### 10. Match end
 
@@ -271,6 +282,7 @@ Expect:
 
 - `lobby:state` with `phase: "waiting"`
 - all players reset to not ready
+- selected characters and selected stage cleared
 
 ## Events the UI should listen for
 
@@ -282,7 +294,6 @@ Expect:
 - `match:starting`
 - `match:snapshot`
 - `match:ended`
-- `player:disconnected`
 
 ### Client to server
 
@@ -306,6 +317,27 @@ The frontend should keep a small shared store with:
 - `lastError`
 
 That is enough for menu flow, lobby flow, and the current match prototype.
+
+`currentMatchSnapshot.players[]` now includes:
+
+- `id`
+- `displayName`
+- `characterId`
+- `x`
+- `y`
+- `vx`
+- `vy`
+- `grounded`
+- `damage`
+- `stocks`
+- `isOutOfPlay`
+- `respawnTimerMs`
+- `respawnInvulnerabilityMs`
+- `respawnPlatformCenterX`
+- `respawnPlatformY`
+- `respawnPlatformWidth`
+- `facing`
+- `action`
 
 ## Important rule
 

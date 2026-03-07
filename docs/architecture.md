@@ -1,128 +1,104 @@
 # Architecture
 
-## Goal
+This repo is a small pnpm workspace with one real backend, one shared contract package, and an early Phaser client scaffold.
 
-Build a browser-based 2D platform fighter inspired by Smash with:
-
-- online lobbies
-- up to 4 players per match
-- custom characters based on real people
-- fast iteration in a code-first workflow
-
-The project should separate gameplay simulation from lobby/backend concerns. That keeps the core combat loop testable and prevents online code from leaking into every gameplay system.
-
-## Recommended Repo Structure
+## Current repo layout
 
 ```text
 bucs-a-thon-2026/
   apps/
-    game-client/              # Phaser client
-      src/
-        core/                 # game loop, entity model, collision, utilities
-        game/                 # combat rules, player state, attacks, stocks
-        scenes/               # menus, lobby, character select, match scene
-        network/              # socket client, sync, reconciliation
-        ui/                   # HUD and menu UI
-        assets/               # sprites, sounds, portraits, stage art
-    server/                   # Node + TypeScript backend
-      src/
-        http/                 # health checks, simple REST endpoints if needed
-        sockets/              # socket server, room handlers, match handlers
-        lobby/                # lobby lifecycle, invites, room codes
-        match/                # authoritative match simulation coordination
-        state/                # in-memory room/player state
-        storage/              # optional persistence adapters
+    game-client/   # Vite + Phaser scaffold
+    server/        # Node + TypeScript Socket.IO backend
   packages/
-    shared/
-      src/
-        protocol/             # websocket message types and schemas
-        content/              # characters, moves, stages, balance data
-        constants/            # tick rate, limits, game constants
-        types/                # shared domain types
+    shared/        # shared event names, payloads, types, constants
   docs/
-    architecture.md
-    stack.md
-    netcode.md
-    mvp.md
 ```
 
-## Runtime Architecture
+## What exists today
 
-### Client
+### `apps/server`
 
-The Phaser client is responsible for:
+The server is the authoritative source of truth for:
 
-- rendering the world and UI
-- collecting player input
-- local animation and effects
-- predicting the local player when possible
-- reconciling to server state
+- lobby membership
+- ready state
+- host permissions
+- match lifecycle
+- live match snapshots
+- simple movement and combat simulation
+- stock, KO, and respawn lifecycle
+- match end and return-to-lobby flow
 
-The client should not be the source of truth for match results.
+Code is organized like this:
 
-### Server
+- `src/http`: HTTP app and `/health`
+- `src/sockets`: Socket.IO bootstrap and handlers
+- `src/lobby`: lobby lifecycle and in-memory lobby/session storage
+- `src/match`: match lifecycle, snapshot loop, and in-memory match runtime state
 
-The Node server is responsible for:
+### `packages/shared`
 
-- creating and joining lobbies
-- tracking connected players
-- starting matches
-- validating match participation
-- running or coordinating the authoritative game state
-- broadcasting snapshots and match events
+The shared package contains:
 
-For an MVP, keep state in memory. Add a database only for accounts, history, or cosmetics.
+- client-to-server payload types
+- server-to-client payload types
+- socket event constants
+- lobby, match, and player types
+- gameplay and network constants
 
-### Shared Package
+Both client and server should import from here instead of duplicating protocol definitions.
 
-The shared package prevents protocol drift. Both client and server should import:
+### `apps/game-client`
 
-- socket event names
-- payload types
-- content schemas
-- game constants
+The client package exists, but it is still mostly a scaffold. The backend is currently ahead of the UI.
 
-This reduces bugs caused by duplicated interfaces.
+## Runtime model
 
-## Domain Breakdown
+### Client responsibilities
 
-Keep code ownership aligned to these systems:
+The client should:
 
-1. `Lobby`
-   - create room
-   - join by code
-   - leave room
-   - ready/unready
-   - host starts game
-2. `Match Flow`
-   - character select
-   - stage select
-   - countdown
-   - match end
-   - return to lobby
-3. `Combat Simulation`
-   - movement
-   - jump/fall
-   - hitboxes/hurtboxes
-   - damage percent
-   - knockback
-   - stocks and respawn
-4. `Content`
-   - characters
-   - stages
-   - attacks
-   - balance tuning
-5. `Online Sync`
-   - input delivery
-   - snapshots
-   - interpolation
-   - reconciliation
-   - disconnect/reconnect handling
+- connect with Socket.IO
+- render screens and HUD
+- collect player input
+- send lobby and match actions
+- render from `lobby:state`, `match:starting`, `match:snapshot`, and `match:ended`
 
-## Design Rules
+### Server responsibilities
 
-- Keep character and stage definitions data-driven.
-- Keep simulation logic deterministic where practical.
-- Prefer simple rectangles/circles for early hit detection.
-- Do not start with rollback netcode.
-- Ship 2-player online first, then expand to 4-player once the model is stable.
+The server currently:
+
+- creates and joins lobbies
+- assigns `playerId`
+- broadcasts `lobby:state`
+- validates match start
+- creates in-memory match sessions
+- activates matches after a countdown
+- emits recurring authoritative snapshots
+- stores player input
+- advances simple movement/combat state
+- advances KO, stock, and respawn state
+- ends matches and resets lobbies
+
+## Current flow summary
+
+The happy path today is:
+
+1. client connects
+2. create or join lobby
+3. ready up
+4. host starts match
+5. server emits `match:starting`
+6. countdown ends
+7. server emits `match:snapshot` on a tick
+8. clients send `match:input`
+9. host or client ends the match with `match:end`
+10. host returns room with `lobby:return`
+
+## Current limitations
+
+- no persistence or database
+- no reconnect support
+- no real character-select or stage-select flow yet
+- no automatic winner detection from stocks yet
+- client integration is still catching up to the backend

@@ -1,6 +1,6 @@
 # Client-Server Flow
 
-This is the plain-English version of how the client and server talk to each other.
+This is the plain-English version of how the client and server talk to each other today.
 
 ## 1. Player opens the game
 
@@ -52,6 +52,10 @@ This is the plain-English version of how the client and server talk to each othe
 - The server broadcasts a fresh `lobby:state`.
 - Every client updates the lobby UI from that server-owned state.
 
+Important detail:
+
+- the current server requires all non-host players to be ready before `match:start`
+
 ## 6. Host starts the match
 
 - Once enough players are present and everyone is ready, the host clicks start.
@@ -64,7 +68,7 @@ This is the plain-English version of how the client and server talk to each othe
   - all players are ready
   - the lobby is in a startable phase
 - If any check fails, the server sends `lobby:error`.
-- If all checks pass, the server changes the lobby phase to `starting`.
+- If all checks pass, the server creates an in-memory match session and changes the lobby phase to `starting`.
 - The server broadcasts:
   - `lobby:state` with the updated phase
   - `match:starting` with the room code, stage ID, player IDs, and countdown
@@ -72,8 +76,7 @@ This is the plain-English version of how the client and server talk to each othe
 
 ## 7. Match begins
 
-- After the host starts the match, the server creates an in-memory match session.
-- The server broadcasts `match:starting` with a countdown.
+- The server starts a countdown using `match:starting`.
 - While countdown is running:
   - lobby phase is `starting`
   - match phase is `countdown`
@@ -82,7 +85,7 @@ This is the plain-English version of how the client and server talk to each othe
   - match phase becomes `active`
   - the server broadcasts a fresh `lobby:state`
   - the server emits an initial `match:snapshot`
-- while the match is active, the server keeps emitting `match:snapshot` on a tick
+- while the match is active, the server keeps emitting `match:snapshot` on a `30` ticks/second server loop
 - clients can send `match:input`, and the server stores the latest input for each player
 - the current backend simulation now applies:
   - horizontal movement
@@ -95,14 +98,14 @@ This is the plain-English version of how the client and server talk to each othe
   - damage
   - knockback
   - hitstun
+- the current backend stock lifecycle now applies:
+  - blast-zone KO detection
+  - stock decrement
+  - out-of-play KO fall
+  - respawn timer
+  - respawn invulnerability
+  - respawn-platform snapshot fields
 - a client can trigger `match:end` to end the current match lifecycle
-
-The live gameplay loop is still the next step:
-
-- clients send `match:input`
-- server advances the match from those inputs
-- server broadcasts recurring `match:snapshot`
-- clients render and reconcile from those snapshots
 
 ## 8. If a player leaves or disconnects
 
@@ -110,6 +113,7 @@ The live gameplay loop is still the next step:
 - Or the socket can disconnect unexpectedly.
 - In either case, the server removes that player from the lobby.
 - If a match session exists for that room, the server removes the in-memory match session too.
+- If the host leaves but players remain, the first remaining player becomes the new host.
 - If players remain, the server broadcasts a new `lobby:state`.
 - If the lobby becomes empty, the lobby is removed from memory.
 
@@ -121,7 +125,7 @@ The live gameplay loop is still the next step:
   - updates lobby phase to `finished`
   - broadcasts `lobby:state`
   - broadcasts `match:ended` with the winner summary
-- The next client-side step after that should be a results screen and return-to-lobby flow.
+- The client should treat that as the results-screen transition.
 
 ## 10. Return to lobby
 
@@ -137,5 +141,5 @@ The live gameplay loop is still the next step:
 ## 11. Source of truth
 
 - The client is responsible for UI, rendering, and player input.
-- The server is responsible for lobby membership, ready state, and match start validation.
+- The server is responsible for lobby membership, ready state, match lifecycle, and authoritative snapshot state.
 - Shared event names and payload types live in `packages/shared` so the client and server stay in sync.
