@@ -69,6 +69,7 @@ Each active tick applies:
 - melee hit detection
 - damage
 - exponential knockback launch
+- a flatter kick launch profile than the standard attack
 - hitstun countdown
 - blast-zone KO detection
 - stock decrement
@@ -124,6 +125,7 @@ Current shared defaults:
 - knockback Y: `-8`
 - hitstun ticks: `8`
 - blast zone: from `DEFAULT_STAGE.blastZone`
+- rooftop top blast zone is intentionally taller now to reduce early upper KOs
 - respawn timing/platform: from `DEFAULT_MATCH_RULES`
 
 ## Smoke coverage
