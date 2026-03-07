@@ -24,9 +24,8 @@ Vite will print the local URL (usually `http://localhost:5173`).
 - `npm run build`
 - `npm run preview`
 
-## Next integration work
+## Audio
 
-- connect to the Socket.IO backend
-- render lobby flow from `lobby:state`
-- handle `match:starting`, `match:snapshot`, and `match:ended`
-- send `match:input` during active matches
+- Drop `.m4a` files into `public/audio/sfx` and `public/audio/voice-memos`.
+- Click `Enable Audio` in the app before testing sounds.
+- Expected optional filenames are documented in `public/audio/README.md`.

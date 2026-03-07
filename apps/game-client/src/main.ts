@@ -254,3 +254,78 @@ function generateRoomCode(): string {
   }
   return code;
 }
+
+type PlayerSnapshot = {
+  grounded: boolean;
+  stocks: number;
+  isOutOfPlay: boolean;
+};
+
+function snapshotPlayers(): Record<string, PlayerSnapshot> {
+  const snapshot: Record<string, PlayerSnapshot> = {};
+  for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
+    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
+    if (!player) {
+      continue;
+    }
+    snapshot[playerId] = {
+      grounded: player.grounded,
+      stocks: player.stocks,
+      isOutOfPlay: player.isOutOfPlay
+    };
+  }
+  return snapshot;
+}
+
+function triggerAudio(input: {
+  previousPlayerStateById: Record<string, PlayerSnapshot>;
+  jumpPressedByPlayerId: Record<string, boolean>;
+  damageHitEvents: DamageHitEvent[];
+}): void {
+  const { previousPlayerStateById, jumpPressedByPlayerId, damageHitEvents } = input;
+
+  const hitTargets = new Set<string>();
+  for (const hitEvent of damageHitEvents) {
+    hitTargets.add(hitEvent.targetPlayerId);
+  }
+  for (const targetPlayerId of hitTargets) {
+    audioSystem.play(getVoiceClipKey(targetPlayerId, "hit"));
+  }
+
+  for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
+    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
+    const previous = previousPlayerStateById[playerId];
+    if (!player || !previous) {
+      continue;
+    }
+
+    if (jumpPressedByPlayerId[playerId] && previous.grounded && !player.grounded) {
+      audioSystem.play("jump");
+    }
+
+    if (previous.stocks > player.stocks) {
+      audioSystem.play(getVoiceClipKey(playerId, "ko"));
+      const knockoutByPlayerId = getOpponentId(playerId);
+      if (knockoutByPlayerId) {
+        audioSystem.play(getVoiceClipKey(knockoutByPlayerId, "win"));
+      }
+    }
+
+    if (previous.isOutOfPlay && !player.isOutOfPlay) {
+      audioSystem.play("respawn");
+    }
+  }
+}
+
+function getVoiceClipKey(playerId: string, event: "hit" | "ko" | "win"): string {
+  return `voice:${playerId}:${event}`;
+}
+
+function getOpponentId(playerId: string): string | null {
+  for (const otherId of MATCH_STATE_EXAMPLE.playerOrder) {
+    if (otherId !== playerId) {
+      return otherId;
+    }
+  }
+  return null;
+}

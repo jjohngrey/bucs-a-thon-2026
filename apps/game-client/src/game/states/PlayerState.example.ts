@@ -9,7 +9,7 @@ const p1 = createPlayerState({
 });
 
 const p2 = createPlayerState({
-  id: "p2",
+  id: "jay",
   spawnPosition: { x: 900, y: 420 },
   hurtboxSize: { x: 44, y: 70 },
   renderSize: { x: 44, y: 70 },
