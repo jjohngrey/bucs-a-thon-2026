@@ -8,3 +8,4 @@
 - `folder-structure.md`: exact repo layout and ownership boundaries
 - `execution-plan.md`: what each team member should build and in what order
 - `server-progress.md`: current backend capabilities, checks, and remaining work
+- `ui-game-handoff.md`: simple instructions for the UI and gameplay people to integrate with the current server
