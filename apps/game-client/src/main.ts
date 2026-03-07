@@ -1295,9 +1295,7 @@ function renderMatchScreen(): string {
   return `
     <main class="shell shell--wide match-screen">
       <section class="card match-card">
-        <h1>Match</h1>
-        <p>Authoritative snapshot rendering with temporary local prediction feel.</p>
-        <p class="controls-note">P1: Arrow keys + J/K. In local bypass, P2: W/A/D + F/G.</p>
+        <h1>SUPER SMASH BUCS</h1>
         <div class="arena">
           <div class="arena-floor"></div>
           ${fallingPlatformMarkup}
