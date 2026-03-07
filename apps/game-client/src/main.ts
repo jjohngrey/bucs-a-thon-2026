@@ -49,6 +49,14 @@ const GROUND_Y_PX = 280;
 const LOCAL_SPEED_PER_TICK = 6;
 const LOCAL_JUMP_VELOCITY = -14;
 const LOCAL_GRAVITY_PER_TICK = 1.2;
+const FALLING_PLATFORM_WORLD_X = 500;
+const FALLING_PLATFORM_WORLD_Y = -110;
+const FALLING_PLATFORM_WIDTH_PX = 170;
+const FALLING_PLATFORM_HEIGHT_PX = 12;
+const FALLING_PLATFORM_STABLE_FRAMES = SERVER_TICK_RATE * 5;
+const FALLING_PLATFORM_FALL_FRAMES = SERVER_TICK_RATE * 2;
+const FALLING_PLATFORM_RESET_FRAMES = SERVER_TICK_RATE * 2;
+const FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
 
 type CharacterSpriteSet = {
   stand: string;
@@ -119,9 +127,9 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
 
 const CHARACTER_DISPLAY: Record<string, { name: string; stand: string }> = {
   "fighter-1": { name: "Jay", stand: "/assets/jay/jay_stand.png" },
-  "fighter-2": { name: "Fahim", stand: "/assets/fahim/fahim_stand.png" },
+  "fighter-2": { name: "Jia", stand: "/assets/jia/jia_stand.png" },
   "fighter-3": { name: "Ryan", stand: "/assets/ryan/ryan_stand.png" },
-  "fighter-4": { name: "Jia", stand: "/assets/jia/jia_stand.png" },
+  "fighter-4": { name: "Fahim", stand: "/assets/fahim/fahim_stand.png" },
 };
 const DEFAULT_MATCH_CHARACTER_LABEL = "temp-fighter";
 
@@ -945,11 +953,12 @@ function renderCountdownScreen(): string {
 
 function renderMatchScreen(): string {
   const snapshot = state.matchSnapshot;
+  const fallingPlatformMarkup = renderFallingPlatform(snapshot);
   if (!snapshot) {
     const placeholderPlayers = (state.lobby?.players ?? [])
       .map((player, index) => {
         const x = 260 + index * 260;
-        const y = 280;
+        const y = 500;
         return `
           <div
             class="arena-player arena-player--placeholder"
@@ -962,12 +971,13 @@ function renderMatchScreen(): string {
       .join("");
 
     return `
-      <main class="shell shell--wide">
-        <section class="card">
+      <main class="shell shell--wide match-screen">
+        <section class="card match-card">
           <h1>Match</h1>
           <p>Waiting for snapshot...</p>
           <div class="arena">
             <div class="arena-floor"></div>
+            ${fallingPlatformMarkup}
             ${placeholderPlayers}
           </div>
           ${renderMessages()}
@@ -1021,26 +1031,123 @@ function renderMatchScreen(): string {
         : player.respawnInvulnerabilityMs > 0
           ? `Invulnerable ${Math.ceil(player.respawnInvulnerabilityMs / 1000)}s`
           : "In play";
-      return `<li><strong>${escapeHtml(player.displayName)}</strong> - ${player.damage}% - Stocks: ${player.stocks} - ${status}</li>`;
+      const damage = Math.max(0, Math.round(player.damage));
+      const damageTierClass = getDamageTierClass(damage);
+      const stockSlots = Math.max(3, player.stocks);
+      const stocksMarkup = Array.from({ length: stockSlots }, (_, index) => {
+        const isFilled = index < player.stocks;
+        return `<span class="hud-player__stock ${isFilled ? "hud-player__stock--filled" : "hud-player__stock--empty"}"></span>`;
+      }).join("");
+      const koClass = player.isOutOfPlay ? "hud-player--ko" : "";
+      return `
+        <article class="hud-player ${koClass}">
+          <div class="hud-player__top">
+            <strong class="hud-player__name">${escapeHtml(player.displayName)}</strong>
+            <span class="hud-player__status">${status}</span>
+          </div>
+          <div class="hud-player__bottom">
+            <div class="hud-player__stocks" aria-label="Stocks remaining">${stocksMarkup}</div>
+            <div class="hud-player__damage-wrap">
+              <span class="hud-player__damage ${damageTierClass}">${damage}</span>
+              <span class="hud-player__percent">%</span>
+            </div>
+          </div>
+        </article>
+      `;
     })
     .join("");
 
   return `
-    <main class="shell shell--wide">
-      <section class="card">
+    <main class="shell shell--wide match-screen">
+      <section class="card match-card">
         <h1>Match</h1>
         <p>Authoritative snapshot rendering with temporary local prediction feel.</p>
         <p class="controls-note">Move: A/D or Arrow keys, Jump: W/Up/Space, Attack: J, Special: K</p>
         <div class="arena">
           <div class="arena-floor"></div>
+          ${fallingPlatformMarkup}
           ${respawnPlatformsMarkup}
           ${playersMarkup}
         </div>
-        <ul class="hud-list">${hudMarkup}</ul>
+        <section class="match-hud" aria-label="Match status">${hudMarkup}</section>
         ${renderMessages()}
       </section>
     </main>
   `;
+}
+
+type FallingPlatformVisualState = {
+  visible: boolean;
+  x: number;
+  y: number;
+  widthPx: number;
+  heightPx: number;
+  shaking: boolean;
+  falling: boolean;
+};
+
+function renderFallingPlatform(snapshot: MatchSnapshot | null): string {
+  const platform = getFallingPlatformVisualState(snapshot);
+  if (!platform.visible) {
+    return "";
+  }
+
+  const shakingClass = platform.shaking ? "arena-falling-platform--shaking" : "";
+  const fallingClass = platform.falling ? "arena-falling-platform--falling" : "";
+  return `
+    <div
+      class="arena-falling-platform ${shakingClass} ${fallingClass}"
+      style="left:${platform.x.toFixed(1)}px;top:${platform.y.toFixed(1)}px;width:${platform.widthPx.toFixed(1)}px;height:${platform.heightPx.toFixed(1)}px;"
+      aria-hidden="true"
+    ></div>
+  `;
+}
+
+function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingPlatformVisualState {
+  const cycleFrames = FALLING_PLATFORM_STABLE_FRAMES + FALLING_PLATFORM_FALL_FRAMES + FALLING_PLATFORM_RESET_FRAMES;
+  const fallbackFrame = Math.floor(performance.now() / (1000 / SERVER_TICK_RATE));
+  const sourceFrame = snapshot?.serverFrame ?? fallbackFrame;
+  const phaseFrame = ((sourceFrame % cycleFrames) + cycleFrames) % cycleFrames;
+  const baseX = worldToScreenX(FALLING_PLATFORM_WORLD_X);
+  const baseY = worldToScreenY(FALLING_PLATFORM_WORLD_Y);
+
+  if (phaseFrame < FALLING_PLATFORM_STABLE_FRAMES) {
+    const warningWindowStart = FALLING_PLATFORM_STABLE_FRAMES - SERVER_TICK_RATE;
+    return {
+      visible: true,
+      x: baseX,
+      y: baseY,
+      widthPx: FALLING_PLATFORM_WIDTH_PX,
+      heightPx: FALLING_PLATFORM_HEIGHT_PX,
+      shaking: phaseFrame >= warningWindowStart,
+      falling: false,
+    };
+  }
+
+  if (phaseFrame < FALLING_PLATFORM_STABLE_FRAMES + FALLING_PLATFORM_FALL_FRAMES) {
+    const fallFrame = phaseFrame - FALLING_PLATFORM_STABLE_FRAMES;
+    const progress = clamp(fallFrame / FALLING_PLATFORM_FALL_FRAMES, 0, 1);
+    const easedProgress = progress * progress;
+    return {
+      visible: true,
+      x: baseX,
+      y: baseY + FALLING_PLATFORM_DROP_DISTANCE_PX * easedProgress,
+      widthPx: FALLING_PLATFORM_WIDTH_PX,
+      heightPx: FALLING_PLATFORM_HEIGHT_PX,
+      shaking: false,
+      falling: true,
+    };
+  }
+
+  return {
+    visible: false,
+    x: baseX,
+    y: baseY,
+    widthPx: FALLING_PLATFORM_WIDTH_PX,
+    heightPx: FALLING_PLATFORM_HEIGHT_PX,
+    shaking: false,
+    falling: false,
+  };
 }
 
 function renderResultsScreen(): string {
@@ -1071,6 +1178,14 @@ function normalizeRoomCode(input: string): string {
 
 function normalizeDisplayName(input: string): string {
   return input.trim().slice(0, 24) || "Player";
+}
+
+function getDamageTierClass(damage: number): string {
+  if (damage >= 180) return "hud-player__damage--critical";
+  if (damage >= 130) return "hud-player__damage--danger";
+  if (damage >= 80) return "hud-player__damage--high";
+  if (damage >= 40) return "hud-player__damage--mid";
+  return "hud-player__damage--low";
 }
 
 function updateLocalPrediction(deltaMs: number): void {
