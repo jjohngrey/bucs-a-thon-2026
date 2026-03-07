@@ -237,11 +237,6 @@ Use snapshot state for:
 - respawn countdown
 - respawn platform visuals
 
-For the current client render path:
-
-- stage floor placement should come from shared stage data
-- world-to-screen X/Y mapping should use the active stage blast zone and floor height
-
 ### Results
 
 `match:ended` includes:
