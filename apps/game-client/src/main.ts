@@ -294,10 +294,7 @@ appRoot.addEventListener("click", async (event) => {
       await leaveAndDisconnectToHome();
       break;
     case "return-to-lobby":
-      state.screen = "lobby";
-      state.matchEnded = null;
-      state.statusMessage = "";
-      render();
+      await handleReturnToLobby();
       break;
     case "start-match":
       emitMatchStart();
@@ -543,6 +540,35 @@ async function handleChangeCharacter(): Promise<void> {
   state.screen = "character-select";
   state.statusMessage = "You are unready. Pick again.";
   state.errorMessage = "";
+  render();
+}
+
+async function handleReturnToLobby(): Promise<void> {
+  if (!state.lobby) {
+    state.errorMessage = "Lobby not found.";
+    render();
+    return;
+  }
+
+  if (state.lobby.hostPlayerId !== state.playerId) {
+    state.errorMessage = "Only the host can return everyone to the lobby.";
+    state.statusMessage = "Waiting for the host to return the room.";
+    render();
+    return;
+  }
+
+  if (!socket?.connected) {
+    state.errorMessage = "Disconnected from server.";
+    render();
+    return;
+  }
+
+  socket.emit(CLIENT_EVENTS.LOBBY_RETURN, {
+    roomCode: state.lobby.roomCode,
+  });
+
+  state.errorMessage = "";
+  state.statusMessage = "Returning to lobby...";
   render();
 }
 
@@ -856,6 +882,21 @@ function attachSocketListeners(activeSocket: Socket): void {
     if (state.screen === "home") {
       state.screen = "character-select";
       state.statusMessage = "Connected. Pick a character and ready up.";
+    }
+
+    if (payload.lobby.phase === "waiting" && state.screen === "results") {
+      state.screen = "character-select";
+      state.matchStarting = null;
+      state.matchSnapshot = null;
+      state.matchEnded = null;
+      state.inputFrame = 0;
+      matchStartingAtMs = 0;
+      latestSnapshotReceivedAtMs = 0;
+      previousSnapshot = null;
+      localPredictionByPlayerId = {};
+      predictionAccumulatorMs = 0;
+      resetPressedInputs();
+      state.statusMessage = "Back in lobby. Pick a character and ready up.";
     }
 
     render();
@@ -1333,6 +1374,7 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
 
 function renderResultsScreen(): string {
   const summary = state.matchEnded;
+  const isHost = Boolean(state.lobby && state.playerId && state.lobby.hostPlayerId === state.playerId);
   const winnerId = summary?.winnerPlayerId ?? null;
   const winnerPlayer = winnerId && state.lobby?.players
     ? state.lobby.players.find((p) => p.id === winnerId)
@@ -1365,7 +1407,7 @@ function renderResultsScreen(): string {
         </p>
         ` : ""}
         <div class="results-actions">
-          <button type="button" class="results-btn results-btn--primary" data-action="return-to-lobby">Stay in Lobby</button>
+          <button type="button" class="results-btn results-btn--primary" data-action="return-to-lobby" ${isHost ? "" : "disabled"}>${isHost ? "Stay in Lobby" : "Waiting for Host"}</button>
           <button type="button" class="results-btn" data-action="leave-lobby">Exit To Home</button>
         </div>
         ${renderMessages()}
