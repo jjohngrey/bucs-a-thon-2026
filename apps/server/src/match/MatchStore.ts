@@ -45,6 +45,7 @@ export class MatchStore {
         ]),
       ),
       hitstunTicksByPlayerId: Object.fromEntries(match.playerIds.map((playerId) => [playerId, 0])),
+      attackCooldownTicksByPlayerId: Object.fromEntries(match.playerIds.map((playerId) => [playerId, 0])),
       latestSnapshot: null,
     });
     return match;
