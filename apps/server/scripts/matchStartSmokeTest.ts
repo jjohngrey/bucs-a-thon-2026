@@ -21,7 +21,7 @@ type TestClientState = {
   session?: SessionJoinedPayload;
   lobbies: LobbyStatePayload[];
   matchStarting?: MatchStartingPayload;
-  snapshot?: MatchSnapshotPayload;
+  snapshots: MatchSnapshotPayload[];
 };
 
 async function main() {
@@ -112,15 +112,19 @@ async function main() {
         waitForLobbyPhase(guest, "in-match"),
       ]);
 
-      const [hostSnapshot, guestSnapshot] = await Promise.all([
-        waitForMatchSnapshot(hostSocket, host),
-        waitForMatchSnapshot(guestSocket, guest),
+      const [hostInitialSnapshots, guestInitialSnapshots] = await Promise.all([
+        waitForSnapshotCount(hostSocket, host, 1),
+        waitForSnapshotCount(guestSocket, guest, 1),
       ]);
+      const hostSnapshot = hostInitialSnapshots.at(-1);
+      const guestSnapshot = guestInitialSnapshots.at(-1);
 
       assert.equal(hostInMatchLobby.lobby.roomCode, createdLobby.lobby.roomCode);
       assert.equal(guestInMatchLobby.lobby.roomCode, createdLobby.lobby.roomCode);
       assert.equal(hostInMatchLobby.lobby.phase, "in-match");
       assert.equal(guestInMatchLobby.lobby.phase, "in-match");
+      assert.ok(hostSnapshot);
+      assert.ok(guestSnapshot);
       assert.equal(hostSnapshot.roomCode, createdLobby.lobby.roomCode);
       assert.equal(guestSnapshot.roomCode, createdLobby.lobby.roomCode);
       assert.equal(hostSnapshot.snapshot.phase, "active");
@@ -131,7 +135,32 @@ async function main() {
       assert.equal(hostSnapshot.snapshot.players[0]?.damage, 0);
       assert.equal(hostSnapshot.snapshot.players[0]?.stocks, 3);
 
-      console.log("Match-start countdown snapshot smoke test passed.");
+      hostSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
+        roomCode: createdLobby.lobby.roomCode,
+        inputFrame: hostSnapshot.snapshot.serverFrame,
+        pressed: {
+          left: false,
+          right: true,
+          jump: false,
+          attack: false,
+          special: false,
+        },
+      });
+
+      const [hostSnapshots, guestSnapshots] = await Promise.all([
+        waitForSnapshotCount(hostSocket, host, 3),
+        waitForSnapshotCount(guestSocket, guest, 3),
+      ]);
+
+      const hostLatestSnapshot = hostSnapshots.at(-1);
+      const guestLatestSnapshot = guestSnapshots.at(-1);
+      assert.ok(hostLatestSnapshot);
+      assert.ok(guestLatestSnapshot);
+      assert.ok(hostLatestSnapshot.snapshot.serverFrame >= 2);
+      assert.ok(guestLatestSnapshot.snapshot.serverFrame >= 2);
+      assert.ok(hostLatestSnapshot.snapshot.players[0]?.x !== hostSnapshot.snapshot.players[0]?.x);
+
+      console.log("Match-start live snapshot smoke test passed.");
       console.log(`Room code: ${hostMatch.roomCode}`);
     } finally {
       hostSocket.disconnect();
@@ -144,7 +173,7 @@ async function main() {
 }
 
 function createClientState(): TestClientState {
-  return { lobbies: [] };
+  return { lobbies: [], snapshots: [] };
 }
 
 function attachObservers(socket: Socket, state: TestClientState) {
@@ -161,7 +190,7 @@ function attachObservers(socket: Socket, state: TestClientState) {
   });
 
   socket.on(SERVER_EVENTS.MATCH_SNAPSHOT, (payload: MatchSnapshotPayload) => {
-    state.snapshot = payload;
+    state.snapshots.push(payload);
   });
 }
 
@@ -243,20 +272,24 @@ async function waitForMatchStarting(socket: Socket, state: TestClientState) {
   return state.matchStarting;
 }
 
-async function waitForMatchSnapshot(socket: Socket, state: TestClientState) {
-  if (state.snapshot) {
-    return state.snapshot;
+async function waitForSnapshotCount(socket: Socket, state: TestClientState, count: number) {
+  const deadline = Date.now() + EVENT_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    if (state.snapshots.length >= count) {
+      return state.snapshots;
+    }
+
+    await onceWithTimeout(socket, SERVER_EVENTS.MATCH_SNAPSHOT, 1000);
   }
 
-  await onceWithTimeout(socket, SERVER_EVENTS.MATCH_SNAPSHOT);
-  assert.ok(state.snapshot, "Expected match:snapshot payload.");
-  return state.snapshot;
+  throw new Error(`Timed out waiting for ${count} match:snapshot payloads.`);
 }
 
-async function onceWithTimeout(socket: Socket, eventName: string) {
+async function onceWithTimeout(socket: Socket, eventName: string, timeoutMs = EVENT_TIMEOUT_MS) {
   return Promise.race([
     once(socket, eventName),
-    delay(EVENT_TIMEOUT_MS).then(() => {
+    delay(timeoutMs).then(() => {
       throw new Error(`Timed out waiting for "${eventName}".`);
     }),
   ]);

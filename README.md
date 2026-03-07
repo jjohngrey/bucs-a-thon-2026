@@ -93,6 +93,7 @@ Implemented:
 - in-memory match session creation
 - countdown transition from `starting` to `in-match`
 - initial `match:snapshot` emission on match activation
+- recurring active-match snapshots and in-memory input handling
 - smoke tests for lobby and match start
 
 Checked:

@@ -82,11 +82,13 @@ This is the plain-English version of how the client and server talk to each othe
   - match phase becomes `active`
   - the server broadcasts a fresh `lobby:state`
   - the server emits an initial `match:snapshot`
+- while the match is active, the server keeps emitting `match:snapshot` on a tick
+- clients can send `match:input`, and the server stores the latest input for each player
 
 The live gameplay loop is still the next step:
 
 - clients send `match:input`
-- server advances the match
+- server advances the match from those inputs
 - server broadcasts recurring `match:snapshot`
 - clients render and reconcile from those snapshots
 

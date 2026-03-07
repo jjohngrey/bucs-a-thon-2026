@@ -1,9 +1,13 @@
-import type { MatchSession } from "@bucs/shared";
+import type { MatchInputPayload, MatchRuntimeState, MatchSession, MatchSnapshot } from "@bucs/shared";
 
 export class MatchStore {
-  private readonly matchesByRoomCode = new Map<string, MatchSession>();
+  private readonly matchesByRoomCode = new Map<string, MatchRuntimeState>();
 
   getMatch(roomCode: string): MatchSession | undefined {
+    return this.matchesByRoomCode.get(roomCode)?.session;
+  }
+
+  getRuntimeState(roomCode: string): MatchRuntimeState | undefined {
     return this.matchesByRoomCode.get(roomCode);
   }
 
@@ -12,18 +16,57 @@ export class MatchStore {
   }
 
   createMatch(match: MatchSession): MatchSession {
-    this.matchesByRoomCode.set(match.roomCode, match);
+    this.matchesByRoomCode.set(match.roomCode, {
+      session: match,
+      latestInputsByPlayerId: Object.fromEntries(
+        match.playerIds.map((playerId) => [
+          playerId,
+          {
+            left: false,
+            right: false,
+            jump: false,
+            attack: false,
+            special: false,
+          },
+        ]),
+      ),
+      latestSnapshot: null,
+    });
     return match;
   }
 
   updateMatchPhase(roomCode: string, phase: MatchSession["phase"]): MatchSession | undefined {
-    const match = this.matchesByRoomCode.get(roomCode);
-    if (!match) {
+    const runtimeState = this.matchesByRoomCode.get(roomCode);
+    if (!runtimeState) {
       return undefined;
     }
 
-    match.phase = phase;
-    return match;
+    runtimeState.session.phase = phase;
+    return runtimeState.session;
+  }
+
+  updateLatestInput(
+    roomCode: string,
+    playerId: string,
+    pressed: MatchInputPayload["pressed"],
+  ): MatchRuntimeState | undefined {
+    const runtimeState = this.matchesByRoomCode.get(roomCode);
+    if (!runtimeState || !(playerId in runtimeState.latestInputsByPlayerId)) {
+      return undefined;
+    }
+
+    runtimeState.latestInputsByPlayerId[playerId] = pressed;
+    return runtimeState;
+  }
+
+  updateLatestSnapshot(roomCode: string, snapshot: MatchSnapshot): MatchRuntimeState | undefined {
+    const runtimeState = this.matchesByRoomCode.get(roomCode);
+    if (!runtimeState) {
+      return undefined;
+    }
+
+    runtimeState.latestSnapshot = snapshot;
+    return runtimeState;
   }
 
   removeMatch(roomCode: string): boolean {

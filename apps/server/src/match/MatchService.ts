@@ -1,12 +1,18 @@
 import type {
   LobbyErrorPayload,
+  MatchInputPayload,
   MatchSnapshot,
   MatchSession,
   MatchStartPayload,
   MatchStartingPayload,
   PlayerMatchState,
 } from "@bucs/shared";
-import { DEFAULT_STAGE_ID, DEFAULT_STOCK_COUNT, PLAYER_ACTIONS } from "@bucs/shared";
+import {
+  DEFAULT_STAGE_ID,
+  DEFAULT_STOCK_COUNT,
+  PLAYER_ACTIONS,
+  SERVER_TICK_RATE,
+} from "@bucs/shared";
 import { LobbyStore } from "../lobby/LobbyStore.js";
 import { normalizeRoomCode } from "../lobby/RoomCode.js";
 import { MatchStore } from "./MatchStore.js";
@@ -39,10 +45,17 @@ export type CleanupMatchResult = {
   removed: boolean;
 };
 
+export type SubmitInputResult = {
+  roomCode: string;
+  playerId: string;
+};
+
 const DEFAULT_COUNTDOWN_MS = 3000;
+const PLAYER_SPEED_PER_TICK = 6;
 
 export class MatchService {
   private readonly pendingStartTimers = new Map<string, NodeJS.Timeout>();
+  private readonly activeMatchIntervals = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly lobbyStore: LobbyStore,
@@ -167,10 +180,87 @@ export class MatchService {
       this.pendingStartTimers.delete(normalizedRoomCode);
     }
 
+    const activeInterval = this.activeMatchIntervals.get(normalizedRoomCode);
+    if (activeInterval) {
+      clearInterval(activeInterval);
+      this.activeMatchIntervals.delete(normalizedRoomCode);
+    }
+
     return {
       roomCode: normalizedRoomCode,
       removed: this.matchStore.removeMatch(normalizedRoomCode),
     };
+  }
+
+  submitInput(socketId: string, payload: MatchInputPayload): MatchServiceResult<SubmitInputResult> {
+    const session = this.lobbyStore.getSessionBySocketId(socketId);
+    if (!session) {
+      return failure("NOT_IN_LOBBY", "Socket is not associated with a lobby.");
+    }
+
+    const roomCode = normalizeRoomCode(payload.roomCode);
+    if (roomCode !== session.roomCode) {
+      return failure("ROOM_MISMATCH", "Socket is not associated with that room.");
+    }
+
+    const match = this.matchStore.getMatch(roomCode);
+    if (!match) {
+      return failure("MATCH_NOT_FOUND", "Match does not exist.");
+    }
+
+    if (match.phase !== "active") {
+      return failure("MATCH_NOT_ACTIVE", "Match is not active.");
+    }
+
+    const updated = this.matchStore.updateLatestInput(roomCode, session.playerId, payload.pressed);
+    if (!updated) {
+      return failure("INPUT_REJECTED", "Unable to store player input.");
+    }
+
+    return {
+      ok: true,
+      value: {
+        roomCode,
+        playerId: session.playerId,
+      },
+    };
+  }
+
+  startSnapshotLoop(
+    roomCode: string,
+    onSnapshot: (payload: { roomCode: string; snapshot: MatchSnapshot }) => void,
+  ): void {
+    const normalizedRoomCode = normalizeRoomCode(roomCode);
+    const existingInterval = this.activeMatchIntervals.get(normalizedRoomCode);
+    if (existingInterval) {
+      clearInterval(existingInterval);
+    }
+
+    const interval = setInterval(() => {
+      const runtimeState = this.matchStore.getRuntimeState(normalizedRoomCode);
+      if (!runtimeState || runtimeState.session.phase !== "active") {
+        return;
+      }
+
+      const snapshot = advanceSnapshot(
+        runtimeState.latestSnapshot ?? createInitialSnapshot(
+          (this.lobbyStore.getLobby(normalizedRoomCode)?.players ?? []).map((player) => ({
+            id: player.id,
+            displayName: player.displayName,
+            selectedCharacterId: player.selectedCharacterId,
+          })),
+        ),
+        runtimeState.latestInputsByPlayerId,
+      );
+
+      this.matchStore.updateLatestSnapshot(normalizedRoomCode, snapshot);
+      onSnapshot({
+        roomCode: normalizedRoomCode,
+        snapshot,
+      });
+    }, Math.round(1000 / SERVER_TICK_RATE));
+
+    this.activeMatchIntervals.set(normalizedRoomCode, interval);
   }
 }
 
@@ -183,6 +273,41 @@ function createInitialSnapshot(players: Array<{
     serverFrame: 0,
     phase: "active",
     players: players.map((player, index) => createInitialPlayerState(player, index)),
+  };
+}
+
+function advanceSnapshot(
+  previous: MatchSnapshot,
+  latestInputsByPlayerId: Record<
+    string,
+    {
+      left: boolean;
+      right: boolean;
+      jump: boolean;
+      attack: boolean;
+      special: boolean;
+    }
+  >,
+): MatchSnapshot {
+  return {
+    serverFrame: previous.serverFrame + 1,
+    phase: "active",
+    players: previous.players.map((player) => {
+      const input = latestInputsByPlayerId[player.id];
+      const horizontalVelocity =
+        input?.left && !input.right
+          ? -PLAYER_SPEED_PER_TICK
+          : input?.right && !input.left
+            ? PLAYER_SPEED_PER_TICK
+            : 0;
+
+      return {
+        ...player,
+        x: player.x + horizontalVelocity,
+        vx: horizontalVelocity,
+        action: horizontalVelocity === 0 ? PLAYER_ACTIONS.IDLE : PLAYER_ACTIONS.RUN,
+      };
+    }),
   };
 }
 

@@ -1,3 +1,4 @@
+import type { MatchInputPayload } from "../protocol/clientToServer.js";
 import type { PlayerMatchState } from "./Player.js";
 
 export type MatchPhase = "countdown" | "active" | "finished";
@@ -7,6 +8,12 @@ export type MatchSession = {
   stageId: string;
   phase: MatchPhase;
   playerIds: string[];
+};
+
+export type MatchRuntimeState = {
+  session: MatchSession;
+  latestInputsByPlayerId: Record<string, MatchInputPayload["pressed"]>;
+  latestSnapshot: MatchSnapshot | null;
 };
 
 export type MatchSnapshot = {
