@@ -2,6 +2,7 @@
 
 - `architecture.md`: repo layout, responsibilities, and runtime architecture
 - `client-server-flow.md`: plain-English walkthrough of the client/server lifecycle from connect to match start
+- `ui-backend-integration.md`: frontend-facing guide for which socket events to send, what to listen for, and how to drive screens from server state
 - `stack.md`: chosen technologies and why they fit this project
 - `netcode.md`: networking model, message protocol, and online match flow
 - `mvp.md`: scoped feature set, milestones, and team split
