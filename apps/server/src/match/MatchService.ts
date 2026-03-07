@@ -10,6 +10,9 @@ import type {
   PlayerMatchState,
 } from "@bucs/shared";
 import {
+  DEFAULT_FLOOR_Y,
+  DEFAULT_GRAVITY_PER_TICK,
+  DEFAULT_JUMP_VELOCITY,
   DEFAULT_STAGE_ID,
   DEFAULT_STOCK_COUNT,
   PLAYER_ACTIONS,
@@ -347,12 +350,37 @@ function advanceSnapshot(
           : input?.right && !input.left
             ? PLAYER_SPEED_PER_TICK
             : 0;
+      const jumped = Boolean(input?.jump && player.grounded);
+      const verticalVelocity = jumped
+        ? DEFAULT_JUMP_VELOCITY
+        : player.vy + DEFAULT_GRAVITY_PER_TICK;
+      const nextY = player.y + verticalVelocity;
+      const grounded = nextY >= DEFAULT_FLOOR_Y;
+      const resolvedY = grounded ? DEFAULT_FLOOR_Y : nextY;
+      const resolvedVy = grounded ? 0 : verticalVelocity;
+      const action = grounded
+        ? horizontalVelocity === 0
+          ? PLAYER_ACTIONS.IDLE
+          : PLAYER_ACTIONS.RUN
+        : resolvedVy < 0
+          ? PLAYER_ACTIONS.JUMP
+          : PLAYER_ACTIONS.FALL;
+      const facing =
+        horizontalVelocity < 0
+          ? "left"
+          : horizontalVelocity > 0
+            ? "right"
+            : player.facing;
 
       return {
         ...player,
         x: player.x + horizontalVelocity,
+        y: resolvedY,
         vx: horizontalVelocity,
-        action: horizontalVelocity === 0 ? PLAYER_ACTIONS.IDLE : PLAYER_ACTIONS.RUN,
+        vy: resolvedVy,
+        grounded,
+        facing,
+        action,
       };
     }),
   };
@@ -371,9 +399,10 @@ function createInitialPlayerState(
     displayName: player.displayName,
     characterId: player.selectedCharacterId ?? `placeholder-${index + 1}`,
     x: index * 160,
-    y: 0,
+    y: DEFAULT_FLOOR_Y,
     vx: 0,
     vy: 0,
+    grounded: true,
     damage: 0,
     stocks: DEFAULT_STOCK_COUNT,
     facing: index % 2 === 0 ? "right" : "left",

@@ -16,6 +16,7 @@ const TEST_PORT = 3102;
 const SERVER_URL = `http://127.0.0.1:${TEST_PORT}`;
 const SERVER_START_TIMEOUT_MS = 5_000;
 const EVENT_TIMEOUT_MS = 5_000;
+const FLOOR_Y = 0;
 
 type TestClientState = {
   session?: SessionJoinedPayload;
@@ -134,6 +135,7 @@ async function main() {
       assert.equal(guestSnapshot.snapshot.players.length, 2);
       assert.equal(hostSnapshot.snapshot.players[0]?.damage, 0);
       assert.equal(hostSnapshot.snapshot.players[0]?.stocks, 3);
+      assert.equal(hostSnapshot.snapshot.players[0]?.grounded, true);
 
       hostSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
         roomCode: createdLobby.lobby.roomCode,
@@ -159,8 +161,40 @@ async function main() {
       assert.ok(hostLatestSnapshot.snapshot.serverFrame >= 2);
       assert.ok(guestLatestSnapshot.snapshot.serverFrame >= 2);
       assert.ok(hostLatestSnapshot.snapshot.players[0]?.x !== hostSnapshot.snapshot.players[0]?.x);
+      assert.equal(hostLatestSnapshot.snapshot.players[0]?.grounded, true);
+      assert.equal(hostLatestSnapshot.snapshot.players[0]?.action, "run");
 
-      console.log("Match-start live snapshot smoke test passed.");
+      hostSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
+        roomCode: createdLobby.lobby.roomCode,
+        inputFrame: hostLatestSnapshot.snapshot.serverFrame,
+        pressed: {
+          left: false,
+          right: false,
+          jump: true,
+          attack: false,
+          special: false,
+        },
+      });
+
+      const jumpSnapshots = await waitForJumpArc(host, hostLatestSnapshot.snapshot.serverFrame);
+      const airborneSnapshot = jumpSnapshots.find(
+        (payload) => payload.snapshot.players[0]?.grounded === false,
+      );
+      const landingSnapshot = jumpSnapshots.findLast(
+        (payload) =>
+          payload.snapshot.serverFrame > hostLatestSnapshot.snapshot.serverFrame &&
+          payload.snapshot.players[0]?.grounded === true,
+      );
+
+      assert.ok(airborneSnapshot);
+      assert.ok(landingSnapshot);
+      assert.ok((airborneSnapshot.snapshot.players[0]?.y ?? FLOOR_Y) < FLOOR_Y);
+      assert.ok((airborneSnapshot.snapshot.players[0]?.vy ?? 0) < 0);
+      assert.equal(airborneSnapshot.snapshot.players[0]?.action, "jump");
+      assert.equal(landingSnapshot.snapshot.players[0]?.y, FLOOR_Y);
+      assert.equal(landingSnapshot.snapshot.players[0]?.grounded, true);
+
+      console.log("Match-start movement physics smoke test passed.");
       console.log(`Room code: ${hostMatch.roomCode}`);
     } finally {
       hostSocket.disconnect();
@@ -284,6 +318,24 @@ async function waitForSnapshotCount(socket: Socket, state: TestClientState, coun
   }
 
   throw new Error(`Timed out waiting for ${count} match:snapshot payloads.`);
+}
+
+async function waitForJumpArc(state: TestClientState, startingFrame: number) {
+  const deadline = Date.now() + EVENT_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    const relevant = state.snapshots.filter((payload) => payload.snapshot.serverFrame > startingFrame);
+    const hasAirborne = relevant.some((payload) => payload.snapshot.players[0]?.grounded === false);
+    const hasLanding = relevant.some((payload) => payload.snapshot.players[0]?.grounded === true);
+
+    if (hasAirborne && hasLanding) {
+      return relevant;
+    }
+
+    await delay(25);
+  }
+
+  throw new Error("Timed out waiting for jump arc snapshots.");
 }
 
 async function onceWithTimeout(socket: Socket, eventName: string, timeoutMs = EVENT_TIMEOUT_MS) {
