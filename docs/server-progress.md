@@ -30,7 +30,7 @@ The server currently supports:
   - one attack input
   - melee hit detection
   - damage application
-  - knockback impulse
+  - damage-scaled knockback launch
   - hitstun state
 - authoritative stock and respawn lifecycle:
   - blast-zone KO detection
@@ -99,7 +99,7 @@ corepack pnpm smoke:return-lobby
 
 - a player can move into range and attack
 - the target takes damage
-- the target receives knockback
+- the target is actually launched after the hit
 - attacker and target action states reflect attack and hitstun
 
 ### `smoke:stocks`

@@ -137,6 +137,19 @@ async function main() {
       assert.ok(target.vy < 0);
       assert.equal(target.grounded, false);
 
+      const launchedSnapshot = await waitForSnapshot(host, (payload) => {
+        const launchedTarget = payload.snapshot.players[1];
+        return Boolean(
+          launchedTarget &&
+            payload.snapshot.serverFrame > hitSnapshot.snapshot.serverFrame &&
+            (Math.abs(launchedTarget.x - target.x) > 10 || launchedTarget.y < target.y - 4),
+        );
+      });
+
+      const launchedTarget = launchedSnapshot.snapshot.players[1];
+      assert.ok(launchedTarget);
+      assert.ok(Math.abs(launchedTarget.x - target.x) > 10 || launchedTarget.y < target.y - 4);
+
       console.log("Combat smoke test passed.");
       console.log(`Room code: ${createdLobby.lobby.roomCode}`);
     } finally {

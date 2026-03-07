@@ -14,7 +14,7 @@ The backend already simulates:
 - one attack input
 - melee hit detection
 - damage
-- knockback
+- damage-scaled knockback launch
 - hitstun
 - blast-zone KO detection
 - stock decrement

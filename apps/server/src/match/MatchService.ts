@@ -13,20 +13,22 @@ import {
   DEFAULT_MATCH_RULES,
   DEFAULT_STAGE,
   DEFAULT_ATTACK_DAMAGE,
+  DEFAULT_ATTACK_BASE_KNOCKBACK,
   DEFAULT_ATTACK_HEIGHT,
+  DEFAULT_ATTACK_KNOCKBACK_GROWTH,
+  DEFAULT_ATTACK_LAUNCH_ANGLE_DEGREES,
   DEFAULT_ATTACK_RANGE,
   DEFAULT_GRAVITY_PER_TICK,
   DEFAULT_HITSTUN_TICKS,
   DEFAULT_JUMP_VELOCITY,
+  DEFAULT_KICK_BASE_KNOCKBACK,
   DEFAULT_KICK_DAMAGE,
   DEFAULT_KICK_HEIGHT,
   DEFAULT_KICK_HITSTUN_TICKS,
-  DEFAULT_KICK_KNOCKBACK_X,
-  DEFAULT_KICK_KNOCKBACK_Y,
+  DEFAULT_KICK_KNOCKBACK_GROWTH,
+  DEFAULT_KICK_LAUNCH_ANGLE_DEGREES,
   DEFAULT_KICK_RANGE,
   DEFAULT_KO_FALL_SPEED_PER_TICK,
-  DEFAULT_KNOCKBACK_X,
-  DEFAULT_KNOCKBACK_Y,
   DEFAULT_STAGE_ID,
   PLAYER_ACTIONS,
   SERVER_TICK_RATE,
@@ -544,13 +546,14 @@ function advanceSnapshot(
     }
 
     const attackProfile = kickTriggered
-      ? {
+        ? {
           action: PLAYER_ACTIONS.KICK,
           range: DEFAULT_KICK_RANGE,
           height: DEFAULT_KICK_HEIGHT,
           damage: DEFAULT_KICK_DAMAGE,
-          knockbackX: DEFAULT_KICK_KNOCKBACK_X,
-          knockbackY: DEFAULT_KICK_KNOCKBACK_Y,
+          launchAngleDegrees: DEFAULT_KICK_LAUNCH_ANGLE_DEGREES,
+          baseKnockback: DEFAULT_KICK_BASE_KNOCKBACK,
+          knockbackGrowth: DEFAULT_KICK_KNOCKBACK_GROWTH,
           hitstunTicks: DEFAULT_KICK_HITSTUN_TICKS,
         }
       : {
@@ -558,8 +561,9 @@ function advanceSnapshot(
           range: DEFAULT_ATTACK_RANGE,
           height: DEFAULT_ATTACK_HEIGHT,
           damage: DEFAULT_ATTACK_DAMAGE,
-          knockbackX: DEFAULT_KNOCKBACK_X,
-          knockbackY: DEFAULT_KNOCKBACK_Y,
+          launchAngleDegrees: DEFAULT_ATTACK_LAUNCH_ANGLE_DEGREES,
+          baseKnockback: DEFAULT_ATTACK_BASE_KNOCKBACK,
+          knockbackGrowth: DEFAULT_ATTACK_KNOCKBACK_GROWTH,
           hitstunTicks: DEFAULT_HITSTUN_TICKS,
         };
 
@@ -585,10 +589,20 @@ function advanceSnapshot(
     }
 
     target.damage += attackProfile.damage;
-    target.vx = attacker.facing === "right" ? attackProfile.knockbackX : -attackProfile.knockbackX;
-    target.vy = attackProfile.knockbackY;
+    const knockbackMagnitude = calculateKnockbackMagnitude(
+      target.damage,
+      attackProfile.baseKnockback,
+      attackProfile.knockbackGrowth,
+    );
+    const launchVector = getLaunchVector(
+      attackProfile.launchAngleDegrees,
+      attacker.x,
+      target.x,
+    );
+    target.vx = launchVector.x * knockbackMagnitude;
+    target.vy = launchVector.y * knockbackMagnitude;
     target.grounded = false;
-    target.y = Math.min(target.y, session.stage.floorY - 1);
+    target.y = Math.min(target.y, session.stage.floorY - 4);
     target.facing = attacker.facing === "right" ? "left" : "right";
     target.action = PLAYER_ACTIONS.HITSTUN;
     hitstunTicksByPlayerId[target.id] = attackProfile.hitstunTicks;
@@ -710,5 +724,28 @@ function getAutoMatchSummary(snapshot: MatchSnapshot): MatchSummary | null {
   return {
     winnerPlayerId,
     eliminatedPlayerIds,
+  };
+}
+
+function calculateKnockbackMagnitude(
+  targetDamage: number,
+  baseKnockback: number,
+  knockbackGrowth: number,
+): number {
+  const safeDamage = Math.max(0, targetDamage);
+  return baseKnockback + knockbackGrowth * Math.sqrt(safeDamage);
+}
+
+function getLaunchVector(
+  angleDegrees: number,
+  attackerX: number,
+  targetX: number,
+): { x: number; y: number } {
+  const radians = (angleDegrees * Math.PI) / 180;
+  const direction = targetX >= attackerX ? 1 : -1;
+
+  return {
+    x: Math.cos(radians) * direction,
+    y: -Math.sin(radians),
   };
 }

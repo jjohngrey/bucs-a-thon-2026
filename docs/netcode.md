@@ -67,7 +67,7 @@ Each active tick applies:
 - attack edge detection
 - melee hit detection
 - damage
-- knockback
+- damage-scaled knockback launch
 - hitstun countdown
 - blast-zone KO detection
 - stock decrement
