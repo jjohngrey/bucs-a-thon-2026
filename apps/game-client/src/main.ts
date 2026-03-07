@@ -1,373 +1,256 @@
 import "./style.css";
-import { MATCH_STATE_EXAMPLE } from "./game/states/MatchState.example";
-import { StagePlatform } from "./game/states/MatchState";
-import { GravitySystem } from "./game/movement/GravitySystem";
-import { JumpSystem } from "./game/movement/JumpSystem";
-import { MoveSystem } from "./game/movement/MoveSystem";
-import { AttackSystem } from "./game/combat/AttackSystem";
-import { HitboxSystem } from "./game/combat/HitboxSystem";
-import { DamageSystem } from "./game/combat/DamageSystem";
-import { KnockbackSystem } from "./game/combat/KnockbackSystem";
-import { StockSystem } from "./game/rules/StockSystem";
-import { RespawnSystem } from "./game/rules/RespawnSystem";
-import { WinConditionSystem } from "./game/rules/WinConditionSystem";
 
-const app = document.querySelector<HTMLDivElement>("#app");
+type Screen = "home" | "join-code" | "character-select" | "lobby";
+type FlowMode = "create" | "join" | null;
 
-if (!app) {
+type AppState = {
+  screen: Screen;
+  mode: FlowMode;
+  joinCodeInput: string;
+  roomCode: string;
+  selectedCharacterId: string | null;
+  lobbyNote: string;
+};
+
+const CHARACTER_CHOICES = ["fighter-a", "fighter-b", "fighter-c", "fighter-d"];
+const ROOM_CODE_LENGTH = 6;
+
+const appRoot = document.querySelector<HTMLDivElement>("#app");
+
+if (!appRoot) {
   throw new Error("Missing #app root element.");
 }
+const app = appRoot;
 
-const keyDown = new Set<string>();
-const previousKeyDown = new Set<string>();
-const playerElementsById: Record<string, HTMLDivElement> = {};
-const lifeBoxElementsByPlayerId: Record<string, HTMLDivElement> = {};
-let hitboxLayerElement: HTMLDivElement | null = null;
-let respawnPlatformLayerElement: HTMLDivElement | null = null;
-let winnerBannerElement: HTMLDivElement | null = null;
-let lastTimestamp = performance.now();
-const moveSystem = new MoveSystem({ moveSpeedPerSecond: 360 });
-const jumpSystem = new JumpSystem({ jumpVelocity: 820 });
-const gravitySystem = new GravitySystem({
-  gravityPerSecond: 2200,
-  maxFallSpeed: 1400
+const state: AppState = {
+  screen: "home",
+  mode: null,
+  joinCodeInput: "",
+  roomCode: "",
+  selectedCharacterId: null,
+  lobbyNote: "",
+};
+
+render();
+
+app.addEventListener("click", (event) => {
+  const target = event.target as HTMLElement | null;
+  const actionElement = target?.closest<HTMLElement>("[data-action]");
+  if (!actionElement) {
+    return;
+  }
+
+  const action = actionElement.dataset.action;
+  switch (action) {
+    case "start-create":
+      state.mode = "create";
+      state.roomCode = generateRoomCode();
+      state.joinCodeInput = "";
+      state.selectedCharacterId = null;
+      state.lobbyNote = "";
+      state.screen = "character-select";
+      break;
+    case "start-join":
+      state.mode = "join";
+      state.roomCode = "";
+      state.joinCodeInput = "";
+      state.selectedCharacterId = null;
+      state.lobbyNote = "";
+      state.screen = "join-code";
+      break;
+    case "go-home":
+      state.screen = "home";
+      state.mode = null;
+      state.roomCode = "";
+      state.joinCodeInput = "";
+      state.selectedCharacterId = null;
+      state.lobbyNote = "";
+      break;
+    case "continue-join": {
+      const normalized = normalizeRoomCode(state.joinCodeInput);
+      if (normalized.length !== ROOM_CODE_LENGTH) {
+        state.lobbyNote = "Enter a 6-character room code.";
+      } else {
+        state.roomCode = normalized;
+        state.lobbyNote = "";
+        state.screen = "character-select";
+      }
+      break;
+    }
+    case "back-from-character":
+      state.screen = state.mode === "join" ? "join-code" : "home";
+      state.selectedCharacterId = null;
+      break;
+    case "select-character": {
+      const selectedCharacterId = actionElement.dataset.characterId;
+      if (selectedCharacterId) {
+        state.selectedCharacterId = selectedCharacterId;
+      }
+      break;
+    }
+    case "to-lobby":
+      if (!state.selectedCharacterId || !state.mode) {
+        break;
+      }
+      state.lobbyNote = "";
+      state.screen = "lobby";
+      break;
+    case "lobby-back":
+      state.screen = "character-select";
+      state.lobbyNote = "";
+      break;
+    case "host-start":
+      state.lobbyNote = "Host start clicked. Wire this to match:start when backend integration is added.";
+      break;
+    default:
+      break;
+  }
+
+  render();
 });
-const attackSystem = new AttackSystem();
-const hitboxSystem = new HitboxSystem();
-const damageSystem = new DamageSystem();
-const knockbackSystem = new KnockbackSystem();
-const stockSystem = new StockSystem();
-const respawnSystem = new RespawnSystem();
-const winConditionSystem = new WinConditionSystem();
 
-app.innerHTML = `
-  <main class="app-shell">
-    <h1>BUCS Fighter - Flat Stage</h1>
-    <p>P1: A / D / W / F, P2: Left / Right / Up / Slash</p>
-    <section class="stage-card">
-      <div class="stage-viewport">
-        <div class="blast-zone">
-          ${renderPlatforms()}
-          <div class="respawn-platform-layer" data-respawn-platform-layer="true"></div>
-          <div class="hitbox-layer" data-hitbox-layer="true"></div>
-          ${renderPlayers()}
+app.addEventListener("input", (event) => {
+  const target = event.target as HTMLElement | null;
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+
+  if (target.dataset.field === "join-room-code") {
+    state.joinCodeInput = normalizeRoomCode(target.value);
+    state.lobbyNote = "";
+    render();
+  }
+});
+
+function render(): void {
+  app.innerHTML = renderScreen();
+}
+
+function renderScreen(): string {
+  switch (state.screen) {
+    case "home":
+      return renderHomeScreen();
+    case "join-code":
+      return renderJoinCodeScreen();
+    case "character-select":
+      return renderCharacterSelectScreen();
+    case "lobby":
+      return renderLobbyScreen();
+    default:
+      return renderHomeScreen();
+  }
+}
+
+function renderHomeScreen(): string {
+  return `
+    <main class="shell">
+      <section class="card">
+        <h1>BUCS Fighter</h1>
+        <p>Choose how to enter a match.</p>
+        <div class="row">
+          <button type="button" data-action="start-create">Create Lobby</button>
+          <button type="button" data-action="start-join">Join Lobby</button>
         </div>
-      </div>
-      <section class="life-hud">
-        ${renderLifeBoxes()}
       </section>
-      <div class="winner-banner" data-winner-banner="true"></div>
-    </section>
-  </main>
-`;
-
-for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
-  const element = document.querySelector<HTMLDivElement>(`[data-player-id="${playerId}"]`);
-  const lifeElement = document.querySelector<HTMLDivElement>(`[data-life-player-id="${playerId}"]`);
-  if (element) {
-    playerElementsById[playerId] = element;
-  }
-  if (lifeElement) {
-    lifeBoxElementsByPlayerId[playerId] = lifeElement;
-  }
-}
-hitboxLayerElement = document.querySelector<HTMLDivElement>('[data-hitbox-layer="true"]');
-respawnPlatformLayerElement = document.querySelector<HTMLDivElement>(
-  '[data-respawn-platform-layer="true"]'
-);
-winnerBannerElement = document.querySelector<HTMLDivElement>('[data-winner-banner="true"]');
-
-window.addEventListener("keydown", (event) => {
-  keyDown.add(event.code);
-});
-
-window.addEventListener("keyup", (event) => {
-  keyDown.delete(event.code);
-});
-
-requestAnimationFrame(tick);
-
-function renderPlatforms(): string {
-  return MATCH_STATE_EXAMPLE.stage.platforms.map((platform) => {
-    const { leftPct, topPct, widthPct, heightPct } = platformToPct(platform);
-    return `<div class="platform" style="left:${leftPct}%;top:${topPct}%;width:${widthPct}%;height:${heightPct}%"></div>`;
-  }).join("");
+    </main>
+  `;
 }
 
-function renderPlayers(): string {
-  return MATCH_STATE_EXAMPLE.playerOrder.map((playerId) => {
-    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
-    if (!player) {
-      return "";
-    }
+function renderJoinCodeScreen(): string {
+  const normalizedValue = normalizeRoomCode(state.joinCodeInput);
+  const canContinue = normalizedValue.length === ROOM_CODE_LENGTH;
 
-    const xPct = toXPct(player.position.x);
-    const yPct = toYPct(player.position.y);
-    const colorClass = playerId === "p1" ? "player-token--p1" : "player-token--p2";
-    const facingClass = getFacingClass(player.facing);
+  return `
+    <main class="shell">
+      <section class="card">
+        <h1>Join Lobby</h1>
+        <p>Enter the room code from the host.</p>
+        <label class="field">
+          Room Code
+          <input
+            data-field="join-room-code"
+            value="${normalizedValue}"
+            maxlength="${ROOM_CODE_LENGTH}"
+            placeholder="ABC123"
+          />
+        </label>
+        ${state.lobbyNote ? `<p class="note">${state.lobbyNote}</p>` : ""}
+        <div class="row">
+          <button type="button" data-action="go-home">Back</button>
+          <button type="button" data-action="continue-join" ${canContinue ? "" : "disabled"}>Continue</button>
+        </div>
+      </section>
+    </main>
+  `;
+}
+
+function renderCharacterSelectScreen(): string {
+  const cards = CHARACTER_CHOICES.map((characterId, index) => {
+    const isSelected = state.selectedCharacterId === characterId;
     return `
-      <div class="player-token ${colorClass} ${facingClass}" data-player-id="${playerId}" style="left:${xPct}%;top:${yPct}%;width:${player.renderSize.x}px;height:${player.renderSize.y}px">
-        <span class="player-token__facing">${player.facing === 1 ? ">" : "<"}</span>
-        <span>${playerId.toUpperCase()}</span>
-      </div>
-    `;
-  }).join("");
-}
-
-function renderLifeBoxes(): string {
-  return MATCH_STATE_EXAMPLE.playerOrder.map((playerId) => {
-    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
-    if (!player) {
-      return "";
-    }
-
-    const colorClass = playerId === "p1" ? "life-box--p1" : "life-box--p2";
-    return `
-      <div class="life-box ${colorClass}" data-life-player-id="${playerId}">
-        <div class="life-box__name">${playerId.toUpperCase()}</div>
-        <div class="life-box__damage">${Math.floor(player.damage)}%</div>
-        <div class="life-box__stocks">Stocks: ${player.stocks}</div>
-      </div>
-    `;
-  }).join("");
-}
-
-function platformToPct(platform: StagePlatform): {
-  leftPct: number;
-  topPct: number;
-  widthPct: number;
-  heightPct: number;
-} {
-  const worldWidth = MATCH_STATE_EXAMPLE.stage.blastZoneMax.x - MATCH_STATE_EXAMPLE.stage.blastZoneMin.x;
-  const worldHeight = MATCH_STATE_EXAMPLE.stage.blastZoneMax.y - MATCH_STATE_EXAMPLE.stage.blastZoneMin.y;
-
-  return {
-    leftPct: ((platform.position.x - MATCH_STATE_EXAMPLE.stage.blastZoneMin.x) / worldWidth) * 100,
-    topPct: ((platform.position.y - MATCH_STATE_EXAMPLE.stage.blastZoneMin.y) / worldHeight) * 100,
-    widthPct: (platform.size.x / worldWidth) * 100,
-    heightPct: (platform.size.y / worldHeight) * 100
-  };
-}
-
-function toXPct(x: number): number {
-  const worldWidth = MATCH_STATE_EXAMPLE.stage.blastZoneMax.x - MATCH_STATE_EXAMPLE.stage.blastZoneMin.x;
-  return ((x - MATCH_STATE_EXAMPLE.stage.blastZoneMin.x) / worldWidth) * 100;
-}
-
-function toYPct(y: number): number {
-  const worldHeight = MATCH_STATE_EXAMPLE.stage.blastZoneMax.y - MATCH_STATE_EXAMPLE.stage.blastZoneMin.y;
-  return ((y - MATCH_STATE_EXAMPLE.stage.blastZoneMin.y) / worldHeight) * 100;
-}
-
-function tick(timestamp: number): void {
-  const deltaMs = Math.min(32, timestamp - lastTimestamp);
-  lastTimestamp = timestamp;
-
-  const moveDirectionByPlayerId = {
-    p1: getMoveDirection("KeyA", "KeyD"),
-    p2: getMoveDirection("ArrowLeft", "ArrowRight")
-  } as const;
-  const jumpPressedByPlayerId = {
-    p1: isPressedThisFrame("KeyW"),
-    p2: isPressedThisFrame("ArrowUp")
-  };
-  const attackPressedByPlayerId = {
-    p1: keyDown.has("KeyF"),
-    p2: keyDown.has("Slash")
-  };
-
-  moveSystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE,
-    moveDirectionByPlayerId
-  });
-  jumpSystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE,
-    jumpPressedByPlayerId
-  });
-  gravitySystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE
-  });
-  attackSystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE,
-    attackPressedByPlayerId
-  });
-  hitboxSystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE
-  });
-  const activeHitboxes = hitboxSystem.getActiveHitboxes();
-  const damageHitEvents = damageSystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE,
-    activeHitboxes
-  });
-  knockbackSystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE,
-    damageHitEvents
-  });
-  stockSystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE
-  });
-  respawnSystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE
-  });
-  winConditionSystem.update({
-    deltaMs,
-    matchState: MATCH_STATE_EXAMPLE
-  });
-
-  syncPlayerVisuals();
-  syncRespawnPlatformsVisuals();
-  syncHitboxVisuals();
-  syncLifeHud();
-
-  previousKeyDown.clear();
-  for (const code of keyDown) {
-    previousKeyDown.add(code);
-  }
-
-  requestAnimationFrame(tick);
-}
-
-function getMoveDirection(leftKey: string, rightKey: string): -1 | 0 | 1 {
-  const leftPressed = keyDown.has(leftKey);
-  const rightPressed = keyDown.has(rightKey);
-  if (leftPressed === rightPressed) {
-    return 0;
-  }
-  return leftPressed ? -1 : 1;
-}
-
-function isPressedThisFrame(keyCode: string): boolean {
-  return keyDown.has(keyCode) && !previousKeyDown.has(keyCode);
-}
-
-function syncPlayerVisuals(): void {
-  for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
-    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
-    const element = playerElementsById[playerId];
-    if (!player || !element) {
-      continue;
-    }
-
-    element.style.left = `${toXPct(player.position.x)}%`;
-    element.style.top = `${toYPct(player.position.y)}%`;
-    element.style.width = `${player.renderSize.x}px`;
-    element.style.height = `${player.renderSize.y}px`;
-    element.classList.remove("player-token--face-left", "player-token--face-right");
-    element.classList.add(getFacingClass(player.facing));
-    const facingIndicator = element.querySelector<HTMLSpanElement>(".player-token__facing");
-    if (facingIndicator) {
-      facingIndicator.textContent = player.facing === 1 ? ">" : "<";
-    }
-
-    const shouldBlink = player.respawnInvulnerabilityMs > 0;
-    if (!shouldBlink) {
-      element.style.opacity = "1";
-    } else {
-      const blinkVisible = Math.floor(lastTimestamp / 90) % 2 === 0;
-      element.style.opacity = blinkVisible ? "1" : "0.35";
-    }
-  }
-}
-
-function getFacingClass(facing: -1 | 1): string {
-  return facing === 1 ? "player-token--face-right" : "player-token--face-left";
-}
-
-function syncHitboxVisuals(): void {
-  if (!hitboxLayerElement) {
-    return;
-  }
-
-  const worldWidth = MATCH_STATE_EXAMPLE.stage.blastZoneMax.x - MATCH_STATE_EXAMPLE.stage.blastZoneMin.x;
-  const worldHeight = MATCH_STATE_EXAMPLE.stage.blastZoneMax.y - MATCH_STATE_EXAMPLE.stage.blastZoneMin.y;
-  const activeHitboxes = hitboxSystem.getActiveHitboxes();
-
-  hitboxLayerElement.innerHTML = activeHitboxes.map((hitbox) => {
-    const leftPct = ((hitbox.x - MATCH_STATE_EXAMPLE.stage.blastZoneMin.x) / worldWidth) * 100;
-    const topPct = ((hitbox.y - MATCH_STATE_EXAMPLE.stage.blastZoneMin.y) / worldHeight) * 100;
-    const widthPct = (hitbox.width / worldWidth) * 100;
-    const heightPct = (hitbox.height / worldHeight) * 100;
-    return `
-      <div
-        class="hitbox-debug"
-        style="left:${leftPct}%;top:${topPct}%;width:${widthPct}%;height:${heightPct}%"
-      ></div>
-    `;
-  }).join("");
-}
-
-function syncRespawnPlatformsVisuals(): void {
-  if (!respawnPlatformLayerElement) {
-    return;
-  }
-
-  const worldWidth = MATCH_STATE_EXAMPLE.stage.blastZoneMax.x - MATCH_STATE_EXAMPLE.stage.blastZoneMin.x;
-  const worldHeight = MATCH_STATE_EXAMPLE.stage.blastZoneMax.y - MATCH_STATE_EXAMPLE.stage.blastZoneMin.y;
-
-  const platformHtml = MATCH_STATE_EXAMPLE.playerOrder.map((playerId) => {
-    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
-    if (
-      !player ||
-      player.respawnInvulnerabilityMs <= 0 ||
-      player.respawnPlatformCenterX === null ||
-      player.respawnPlatformY === null ||
-      player.respawnPlatformWidth <= 0
-    ) {
-      return "";
-    }
-
-    const leftWorld = player.respawnPlatformCenterX - player.respawnPlatformWidth / 2;
-    const topWorld = player.respawnPlatformY;
-    const leftPct = ((leftWorld - MATCH_STATE_EXAMPLE.stage.blastZoneMin.x) / worldWidth) * 100;
-    const topPct = ((topWorld - MATCH_STATE_EXAMPLE.stage.blastZoneMin.y) / worldHeight) * 100;
-    const widthPct = (player.respawnPlatformWidth / worldWidth) * 100;
-    const heightPct = (14 / worldHeight) * 100;
-
-    return `
-      <div
-        class="respawn-platform"
-        style="left:${leftPct}%;top:${topPct}%;width:${widthPct}%;height:${heightPct}%"
-      ></div>
+      <button
+        type="button"
+        class="character-card ${isSelected ? "character-card--selected" : ""}"
+        data-action="select-character"
+        data-character-id="${characterId}"
+      >
+        Character ${index + 1}
+      </button>
     `;
   }).join("");
 
-  respawnPlatformLayerElement.innerHTML = platformHtml;
+  return `
+    <main class="shell">
+      <section class="card">
+        <h1>Character Select</h1>
+        <p>Placeholder selection. Pick one rectangle.</p>
+        <div class="character-grid">${cards}</div>
+        <div class="row">
+          <button type="button" data-action="back-from-character">Back</button>
+          <button type="button" data-action="to-lobby" ${state.selectedCharacterId ? "" : "disabled"}>Continue</button>
+        </div>
+      </section>
+    </main>
+  `;
 }
 
-function syncLifeHud(): void {
-  for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
-    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
-    const lifeBox = lifeBoxElementsByPlayerId[playerId];
-    if (!player || !lifeBox) {
-      continue;
-    }
+function renderLobbyScreen(): string {
+  const isHost = state.mode === "create";
+  const selectedCharacterLabel = state.selectedCharacterId ?? "none";
 
-    lifeBox.innerHTML = `
-      <div class="life-box__name">${playerId.toUpperCase()}</div>
-      <div class="life-box__damage">${Math.floor(player.damage)}%</div>
-      <div class="life-box__stocks">Stocks: ${player.stocks}</div>
-    `;
+  return `
+    <main class="shell">
+      <section class="card">
+        <h1>Lobby</h1>
+        <p>Room Code: <strong>${state.roomCode}</strong></p>
+        <ul class="player-list">
+          <li>You (${isHost ? "Host" : "Guest"}) - ${selectedCharacterLabel}</li>
+          <li>Waiting for other players...</li>
+        </ul>
+        ${state.lobbyNote ? `<p class="note">${state.lobbyNote}</p>` : ""}
+        <div class="row">
+          <button type="button" data-action="lobby-back">Change Character</button>
+          ${
+            isHost
+              ? '<button type="button" data-action="host-start">Start Match</button>'
+              : '<button type="button" disabled>Waiting For Host</button>'
+          }
+        </div>
+      </section>
+    </main>
+  `;
+}
+
+function normalizeRoomCode(input: string): string {
+  return input.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, ROOM_CODE_LENGTH);
+}
+
+function generateRoomCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < ROOM_CODE_LENGTH; i += 1) {
+    const index = Math.floor(Math.random() * chars.length);
+    code += chars[index];
   }
-
-  if (!winnerBannerElement) {
-    return;
-  }
-
-  if (MATCH_STATE_EXAMPLE.phase === "finished" && MATCH_STATE_EXAMPLE.winnerPlayerId) {
-    winnerBannerElement.textContent = `${MATCH_STATE_EXAMPLE.winnerPlayerId.toUpperCase()} wins`;
-    winnerBannerElement.classList.add("winner-banner--visible");
-    return;
-  }
-
-  winnerBannerElement.textContent = "";
-  winnerBannerElement.classList.remove("winner-banner--visible");
+  return code;
 }
