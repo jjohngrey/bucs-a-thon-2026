@@ -8,9 +8,11 @@ import { AttackSystem } from "./game/combat/AttackSystem";
 import { HitboxSystem } from "./game/combat/HitboxSystem";
 import { DamageSystem } from "./game/combat/DamageSystem";
 import { KnockbackSystem } from "./game/combat/KnockbackSystem";
+import { DamageHitEvent } from "./game/combat/CombatTypes";
 import { StockSystem } from "./game/rules/StockSystem";
 import { RespawnSystem } from "./game/rules/RespawnSystem";
 import { WinConditionSystem } from "./game/rules/WinConditionSystem";
+import { AudioSystem } from "./game/audio/AudioSystem";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -39,6 +41,37 @@ const knockbackSystem = new KnockbackSystem();
 const stockSystem = new StockSystem();
 const respawnSystem = new RespawnSystem();
 const winConditionSystem = new WinConditionSystem();
+const audioSystem = new AudioSystem();
+const playerVoiceFolderById: Record<string, string> = {
+  p1: "jia",
+  p2: "jay"
+};
+
+audioSystem.registerClip("jump", { url: "/audio/sfx/jump.m4a", volume: 0.55, poolSize: 4 });
+audioSystem.registerClip("respawn", { url: "/audio/sfx/respawn.m4a", volume: 0.8, poolSize: 2 });
+for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
+  const folderName = playerVoiceFolderById[playerId];
+  if (!folderName) {
+    continue;
+  }
+
+  audioSystem.registerClip(getVoiceClipKey(playerId, "hit"), {
+    url: `/audio/voice-memos/${folderName}/hit.m4a`,
+    volume: 0.8,
+    poolSize: 2
+  });
+  audioSystem.registerClip(getVoiceClipKey(playerId, "ko"), {
+    url: `/audio/voice-memos/${folderName}/ko.m4a`,
+    volume: 0.85,
+    poolSize: 2
+  });
+  audioSystem.registerClip(getVoiceClipKey(playerId, "win"), {
+    url: `/audio/voice-memos/${folderName}/win.m4a`,
+    volume: 0.85,
+    poolSize: 2
+  });
+}
+audioSystem.enable();
 
 app.innerHTML = `
   <main class="app-shell">
@@ -162,6 +195,7 @@ function toYPct(y: number): number {
 function tick(timestamp: number): void {
   const deltaMs = Math.min(32, timestamp - lastTimestamp);
   lastTimestamp = timestamp;
+  const previousPlayerStateById = snapshotPlayers();
 
   const moveDirectionByPlayerId = {
     p1: getMoveDirection("KeyA", "KeyD"),
@@ -221,6 +255,12 @@ function tick(timestamp: number): void {
   winConditionSystem.update({
     deltaMs,
     matchState: MATCH_STATE_EXAMPLE
+  });
+
+  triggerAudio({
+    previousPlayerStateById,
+    jumpPressedByPlayerId,
+    damageHitEvents
   });
 
   syncPlayerVisuals();
@@ -370,4 +410,79 @@ function syncLifeHud(): void {
 
   winnerBannerElement.textContent = "";
   winnerBannerElement.classList.remove("winner-banner--visible");
+}
+
+type PlayerSnapshot = {
+  grounded: boolean;
+  stocks: number;
+  isOutOfPlay: boolean;
+};
+
+function snapshotPlayers(): Record<string, PlayerSnapshot> {
+  const snapshot: Record<string, PlayerSnapshot> = {};
+  for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
+    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
+    if (!player) {
+      continue;
+    }
+    snapshot[playerId] = {
+      grounded: player.grounded,
+      stocks: player.stocks,
+      isOutOfPlay: player.isOutOfPlay
+    };
+  }
+  return snapshot;
+}
+
+function triggerAudio(input: {
+  previousPlayerStateById: Record<string, PlayerSnapshot>;
+  jumpPressedByPlayerId: Record<string, boolean>;
+  damageHitEvents: DamageHitEvent[];
+}): void {
+  const { previousPlayerStateById, jumpPressedByPlayerId, damageHitEvents } = input;
+
+  const hitTargets = new Set<string>();
+  for (const hitEvent of damageHitEvents) {
+    hitTargets.add(hitEvent.targetPlayerId);
+  }
+  for (const targetPlayerId of hitTargets) {
+    audioSystem.play(getVoiceClipKey(targetPlayerId, "hit"));
+  }
+
+  for (const playerId of MATCH_STATE_EXAMPLE.playerOrder) {
+    const player = MATCH_STATE_EXAMPLE.playersById[playerId];
+    const previous = previousPlayerStateById[playerId];
+    if (!player || !previous) {
+      continue;
+    }
+
+    if (jumpPressedByPlayerId[playerId] && previous.grounded && !player.grounded) {
+      audioSystem.play("jump");
+    }
+
+    if (previous.stocks > player.stocks) {
+      audioSystem.play(getVoiceClipKey(playerId, "ko"));
+      const knockoutByPlayerId = getOpponentId(playerId);
+      if (knockoutByPlayerId) {
+        audioSystem.play(getVoiceClipKey(knockoutByPlayerId, "win"));
+      }
+    }
+
+    if (previous.isOutOfPlay && !player.isOutOfPlay) {
+      audioSystem.play("respawn");
+    }
+  }
+}
+
+function getVoiceClipKey(playerId: string, event: "hit" | "ko" | "win"): string {
+  return `voice:${playerId}:${event}`;
+}
+
+function getOpponentId(playerId: string): string | null {
+  for (const otherId of MATCH_STATE_EXAMPLE.playerOrder) {
+    if (otherId !== playerId) {
+      return otherId;
+    }
+  }
+  return null;
 }

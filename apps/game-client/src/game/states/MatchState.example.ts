@@ -12,7 +12,7 @@ export const MATCH_STATE_EXAMPLE = createMatchState({
     },
     {
       id: "p2",
-      spawnPosition: { x: 900, y: 420 },
+      spawnPosition: { x: 900, y: 420 },  
       hurtboxSize: { x: 48, y: 70 },
       renderSize: { x: 48, y: 70 },
       facing: -1

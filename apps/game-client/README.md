@@ -21,3 +21,9 @@ Vite will print the local URL (usually `http://localhost:5173`).
 
 - `npm run build`
 - `npm run preview`
+
+## Audio
+
+- Drop `.m4a` files into `public/audio/sfx` and `public/audio/voice-memos`.
+- Click `Enable Audio` in the app before testing sounds.
+- Expected optional filenames are documented in `public/audio/README.md`.
