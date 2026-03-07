@@ -10,28 +10,21 @@ import type {
   PlayerMatchState,
 } from "@bucs/shared";
 import {
+  DEFAULT_MATCH_RULES,
+  DEFAULT_STAGE,
   DEFAULT_ATTACK_DAMAGE,
   DEFAULT_ATTACK_HEIGHT,
   DEFAULT_ATTACK_RANGE,
-  DEFAULT_BLAST_ZONE_MAX_X,
-  DEFAULT_BLAST_ZONE_MAX_Y,
-  DEFAULT_BLAST_ZONE_MIN_X,
-  DEFAULT_BLAST_ZONE_MIN_Y,
-  DEFAULT_FLOOR_Y,
   DEFAULT_GRAVITY_PER_TICK,
   DEFAULT_HITSTUN_TICKS,
   DEFAULT_JUMP_VELOCITY,
   DEFAULT_KO_FALL_SPEED_PER_TICK,
   DEFAULT_KNOCKBACK_X,
   DEFAULT_KNOCKBACK_Y,
-  DEFAULT_RESPAWN_DURATION_MS,
-  DEFAULT_RESPAWN_INVULNERABILITY_MS,
-  DEFAULT_RESPAWN_PLATFORM_WIDTH,
-  DEFAULT_RESPAWN_TOP_BUFFER,
   DEFAULT_STAGE_ID,
-  DEFAULT_STOCK_COUNT,
   PLAYER_ACTIONS,
   SERVER_TICK_RATE,
+  STAGES,
 } from "@bucs/shared";
 import { LobbyStore } from "../lobby/LobbyStore.js";
 import { normalizeRoomCode } from "../lobby/RoomCode.js";
@@ -137,6 +130,8 @@ export class MatchService {
       stageId: lobby.selectedStageId ?? DEFAULT_STAGE_ID,
       phase: "countdown",
       playerIds: lobby.players.map((player) => player.id),
+      stage: STAGES[lobby.selectedStageId ?? DEFAULT_STAGE_ID] ?? DEFAULT_STAGE,
+      rules: DEFAULT_MATCH_RULES,
     };
 
     this.matchStore.createMatch(match);
@@ -196,7 +191,7 @@ export class MatchService {
       onActivated({
         roomCode,
         match: updatedMatch,
-        snapshot: createInitialSnapshot(lobby.players),
+        snapshot: createInitialSnapshot(lobby.players, updatedMatch),
       });
     }, countdownMs);
 
@@ -281,10 +276,12 @@ export class MatchService {
             displayName: player.displayName,
             selectedCharacterId: player.selectedCharacterId,
           })),
+          runtimeState.session,
         ),
         runtimeState.latestInputsByPlayerId,
         runtimeState.previousInputsByPlayerId,
         runtimeState.hitstunTicksByPlayerId,
+        runtimeState.session,
       );
 
       this.matchStore.updateLatestSnapshot(normalizedRoomCode, snapshot);
@@ -359,11 +356,11 @@ function createInitialSnapshot(players: Array<{
   id: string;
   displayName: string;
   selectedCharacterId: string | null;
-}>): MatchSnapshot {
+}>, session: MatchSession): MatchSnapshot {
   return {
     serverFrame: 0,
     phase: "active",
-    players: players.map((player, index) => createInitialPlayerState(player, index)),
+    players: players.map((player, index) => createInitialPlayerState(player, index, session)),
   };
 }
 
@@ -390,6 +387,7 @@ function advanceSnapshot(
     }
   >,
   hitstunTicksByPlayerId: Record<string, number>,
+  session: MatchSession,
 ): MatchSnapshot {
   const nextPlayers: PlayerMatchState[] = previous.players.map((player) => {
     const isEliminated = player.stocks <= 0;
@@ -420,7 +418,7 @@ function advanceSnapshot(
         };
       }
 
-      return createRespawnedPlayerState(player);
+      return createRespawnedPlayerState(player, session);
     }
 
     const nextInvulnerabilityMs = Math.max(0, player.respawnInvulnerabilityMs - TICK_DURATION_MS);
@@ -442,8 +440,8 @@ function advanceSnapshot(
       ? DEFAULT_JUMP_VELOCITY
       : player.vy + DEFAULT_GRAVITY_PER_TICK;
     const nextY = player.y + verticalVelocity;
-    const grounded = nextY >= DEFAULT_FLOOR_Y;
-    const resolvedY = grounded ? DEFAULT_FLOOR_Y : nextY;
+    const grounded = nextY >= session.stage.floorY;
+    const resolvedY = grounded ? session.stage.floorY : nextY;
     const resolvedVy = grounded ? 0 : verticalVelocity;
     const facing =
       horizontalVelocity < 0
@@ -514,7 +512,7 @@ function advanceSnapshot(
     target.vx = attacker.facing === "right" ? DEFAULT_KNOCKBACK_X : -DEFAULT_KNOCKBACK_X;
     target.vy = DEFAULT_KNOCKBACK_Y;
     target.grounded = false;
-    target.y = Math.min(target.y, DEFAULT_FLOOR_Y - 1);
+    target.y = Math.min(target.y, session.stage.floorY - 1);
     target.facing = attacker.facing === "right" ? "left" : "right";
     target.action = PLAYER_ACTIONS.HITSTUN;
     hitstunTicksByPlayerId[target.id] = DEFAULT_HITSTUN_TICKS;
@@ -525,13 +523,13 @@ function advanceSnapshot(
       continue;
     }
 
-    if (!isOutsideBlastZone(player)) {
+    if (!isOutsideBlastZone(player, session)) {
       continue;
     }
 
     player.stocks = Math.max(0, player.stocks - 1);
     player.isOutOfPlay = true;
-    player.respawnTimerMs = player.stocks > 0 ? DEFAULT_RESPAWN_DURATION_MS : 0;
+    player.respawnTimerMs = player.stocks > 0 ? session.rules.respawnDurationMs : 0;
     player.respawnInvulnerabilityMs = 0;
     player.respawnPlatformCenterX = null;
     player.respawnPlatformY = null;
@@ -556,18 +554,20 @@ function createInitialPlayerState(
     selectedCharacterId: string | null;
   },
   index: number,
+  session: MatchSession,
 ): PlayerMatchState {
+  const spawnPoint = session.stage.spawnPoints[index] ?? session.stage.spawnPoints[0] ?? { x: 0, y: session.stage.floorY };
   return {
     id: player.id,
     displayName: player.displayName,
     characterId: player.selectedCharacterId ?? `placeholder-${index + 1}`,
-    x: index * 160,
-    y: DEFAULT_FLOOR_Y,
+    x: spawnPoint.x,
+    y: spawnPoint.y,
     vx: 0,
     vy: 0,
     grounded: true,
     damage: 0,
-    stocks: DEFAULT_STOCK_COUNT,
+    stocks: session.rules.startingStocks,
     isOutOfPlay: false,
     respawnTimerMs: 0,
     respawnInvulnerabilityMs: 0,
@@ -579,9 +579,9 @@ function createInitialPlayerState(
   };
 }
 
-function createRespawnedPlayerState(player: PlayerMatchState): PlayerMatchState {
-  const respawnX = (DEFAULT_BLAST_ZONE_MIN_X + DEFAULT_BLAST_ZONE_MAX_X) / 2;
-  const respawnY = DEFAULT_BLAST_ZONE_MIN_Y + DEFAULT_RESPAWN_TOP_BUFFER;
+function createRespawnedPlayerState(player: PlayerMatchState, session: MatchSession): PlayerMatchState {
+  const respawnX = (session.stage.blastZone.minX + session.stage.blastZone.maxX) / 2;
+  const respawnY = session.stage.blastZone.minY + session.rules.respawnTopBuffer;
 
   return {
     ...player,
@@ -593,20 +593,20 @@ function createRespawnedPlayerState(player: PlayerMatchState): PlayerMatchState 
     damage: 0,
     isOutOfPlay: false,
     respawnTimerMs: 0,
-    respawnInvulnerabilityMs: DEFAULT_RESPAWN_INVULNERABILITY_MS,
+    respawnInvulnerabilityMs: session.rules.respawnInvulnerabilityMs,
     respawnPlatformCenterX: respawnX,
     respawnPlatformY: respawnY,
-    respawnPlatformWidth: DEFAULT_RESPAWN_PLATFORM_WIDTH,
+    respawnPlatformWidth: session.rules.respawnPlatformWidth,
     action: PLAYER_ACTIONS.RESPAWN,
   };
 }
 
-function isOutsideBlastZone(player: PlayerMatchState): boolean {
+function isOutsideBlastZone(player: PlayerMatchState, session: MatchSession): boolean {
   return (
-    player.x < DEFAULT_BLAST_ZONE_MIN_X ||
-    player.x > DEFAULT_BLAST_ZONE_MAX_X ||
-    player.y < DEFAULT_BLAST_ZONE_MIN_Y ||
-    player.y > DEFAULT_BLAST_ZONE_MAX_Y
+    player.x < session.stage.blastZone.minX ||
+    player.x > session.stage.blastZone.maxX ||
+    player.y < session.stage.blastZone.minY ||
+    player.y > session.stage.blastZone.maxY
   );
 }
 

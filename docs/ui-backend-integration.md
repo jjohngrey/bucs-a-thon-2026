@@ -26,6 +26,7 @@ The server already owns:
 - automatic win detection when one player remains
 - match end
 - return to lobby
+- stage floor, blast zone, spawn points, and respawn settings from shared content
 
 The UI should render this state, not simulate it again.
 

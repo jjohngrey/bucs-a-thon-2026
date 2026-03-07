@@ -62,6 +62,7 @@ Implemented:
 - basic attack, damage, knockback, and hitstun
 - blast-zone KO, stock decrement, and respawn lifecycle on the server
 - automatic server-side win detection
+- shared stage and rules content for floor, blast zone, spawns, and respawn settings
 - smoke tests for lobby, match start, combat, match end, and return to lobby
 
 Smoke test commands:

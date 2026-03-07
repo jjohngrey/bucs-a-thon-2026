@@ -72,6 +72,7 @@ Each active tick applies:
 - respawn timer
 - respawn invulnerability countdown
 - automatic winner detection when one player has stocks left
+- stage floor, blast zone, spawn points, and respawn math from shared content
 
 ## Snapshot shape
 
@@ -109,7 +110,7 @@ Current shared defaults:
 
 - default stage: `rooftop`
 - stocks: `3`
-- floor Y: `0`
+- floor Y: from `DEFAULT_STAGE.floorY`
 - jump velocity: `-14`
 - gravity per tick: `1.2`
 - attack damage: `12`
@@ -118,11 +119,8 @@ Current shared defaults:
 - knockback X: `10`
 - knockback Y: `-8`
 - hitstun ticks: `8`
-- blast zone min/max: `(-200, -400)` to `(1400, 900)`
-- respawn duration ms: `2000`
-- respawn invulnerability ms: `1200`
-- respawn top buffer: `360`
-- respawn platform width: `170`
+- blast zone: from `DEFAULT_STAGE.blastZone`
+- respawn timing/platform: from `DEFAULT_MATCH_RULES`
 
 ## Smoke coverage
 

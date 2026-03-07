@@ -40,6 +40,12 @@ The server currently supports:
 - automatic win detection when one player has stocks left
 - explicit `match:end` handling with `match:ended` broadcast
 - cleanup of in-memory match sessions when a room breaks
+- shared stage and rules data now drive:
+  - floor height
+  - blast zone bounds
+  - initial spawn points
+  - respawn point calculation
+  - respawn timing and platform width
 
 ## Verified commands
 
@@ -74,6 +80,7 @@ corepack pnpm smoke:return-lobby
 - both clients receive an initial `match:snapshot`
 - active matches continue emitting snapshots with increasing server frames
 - server snapshots reflect real movement state changes including jump, gravity, and floor landing
+- initial spawn positions and starting stocks come from shared stage/rules data
 
 ### `smoke:combat`
 
@@ -88,6 +95,7 @@ corepack pnpm smoke:return-lobby
 - the server marks the player as out of play
 - the server starts a respawn timer
 - the server respawns the player with invulnerability and respawn-platform data
+- respawn position and platform width come from shared stage/rules data
 
 ### `smoke:auto-win`
 

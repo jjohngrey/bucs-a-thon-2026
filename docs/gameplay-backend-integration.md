@@ -21,6 +21,7 @@ The backend already simulates:
 - respawn timer
 - respawn invulnerability
 - automatic win detection when one player remains
+- stage floor, blast zone, spawn points, and respawn settings from shared content
 
 That means the client gameplay code should not become a second source of truth for match results.
 
@@ -88,7 +89,7 @@ Current action values used by the backend:
 
 If the gameplay person has local draft logic already, line it up with these backend rules:
 
-- floor Y is `0`
+- floor Y comes from the shared stage definition
 - jump velocity is `-14`
 - gravity per tick is `1.2`
 - attack damage is `12`
@@ -97,6 +98,11 @@ If the gameplay person has local draft logic already, line it up with these back
 - knockback X is `10`
 - knockback Y is `-8`
 - stocks start at `3`
+
+The current default stage and rules live in `@bucs/shared`:
+
+- `DEFAULT_STAGE`
+- `DEFAULT_MATCH_RULES`
 
 They do not need to hardcode those forever, but they should match them for now so local visuals do not drift from server state.
 

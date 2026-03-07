@@ -1,5 +1,7 @@
 export * from "./constants/gameplay.js";
 export * from "./constants/network.js";
+export * from "./content/rules.js";
+export * from "./content/stages.js";
 export * from "./protocol/clientToServer.js";
 export * from "./protocol/eventMaps.js";
 export * from "./protocol/eventNames.js";
@@ -7,3 +9,4 @@ export * from "./protocol/serverToClient.js";
 export * from "./types/Lobby.js";
 export * from "./types/Match.js";
 export * from "./types/Player.js";
+export * from "./types/Stage.js";

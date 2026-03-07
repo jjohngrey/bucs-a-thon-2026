@@ -105,6 +105,7 @@ Important detail:
   - respawn timer
   - respawn invulnerability
   - respawn-platform snapshot fields
+- floor, blast zone, spawn points, and respawn rules are now read from shared stage/rules data
 - when only one player has stocks left, the server ends the match automatically
 - a client can still trigger `match:end` as a fallback path
 

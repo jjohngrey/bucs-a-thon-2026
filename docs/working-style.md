@@ -61,6 +61,8 @@ corepack pnpm check
 corepack pnpm smoke:lobby
 corepack pnpm smoke:match-start
 corepack pnpm smoke:combat
+corepack pnpm smoke:stocks
+corepack pnpm smoke:auto-win
 corepack pnpm smoke:match-end
 corepack pnpm smoke:return-lobby
 ```

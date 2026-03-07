@@ -4,6 +4,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import assert from "node:assert/strict";
 import {
   CLIENT_EVENTS,
+  DEFAULT_MATCH_RULES,
+  DEFAULT_STAGE,
   SERVER_EVENTS,
   type LobbyStatePayload,
   type MatchSnapshotPayload,
@@ -131,9 +133,24 @@ async function main() {
       assert.equal(respawnedGuest.action, "respawn");
       assert.equal(respawnedGuest.damage, 0);
       assert.equal(respawnedGuest.respawnTimerMs, 0);
+      assert.equal(
+        respawnedGuest.x,
+        (DEFAULT_STAGE.blastZone.minX + DEFAULT_STAGE.blastZone.maxX) / 2,
+      );
+      assert.equal(
+        respawnedGuest.y,
+        DEFAULT_STAGE.blastZone.minY + DEFAULT_MATCH_RULES.respawnTopBuffer,
+      );
       assert.equal(respawnedGuest.respawnPlatformCenterX, respawnedGuest.x);
       assert.equal(respawnedGuest.respawnPlatformY, respawnedGuest.y);
-      assert.ok((respawnedGuest.respawnPlatformWidth ?? 0) > 0);
+      assert.equal(
+        respawnedGuest.respawnPlatformWidth,
+        DEFAULT_MATCH_RULES.respawnPlatformWidth,
+      );
+      assert.ok(
+        respawnedGuest.respawnInvulnerabilityMs <=
+          DEFAULT_MATCH_RULES.respawnInvulnerabilityMs,
+      );
 
       console.log("Stocks and respawn smoke test passed.");
       console.log(`Room code: ${createdLobby.lobby.roomCode}`);
