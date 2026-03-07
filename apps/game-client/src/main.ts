@@ -1,9 +1,23 @@
 import "./style.css";
-import { CLIENT_EVENTS, SERVER_EVENTS, type LobbyState, type LobbyStatePayload, type MatchStartingPayload, type SessionJoinedPayload } from "@bucs/shared";
+import {
+  CLIENT_EVENTS,
+  SERVER_EVENTS,
+  SERVER_TICK_RATE,
+  type LobbyState,
+  type LobbyStatePayload,
+  type MatchEndedPayload,
+  type MatchInputPayload,
+  type MatchSnapshot,
+  type MatchSnapshotPayload,
+  type MatchStartingPayload,
+  type PlayerAction,
+  type SessionJoinedPayload,
+} from "@bucs/shared";
 import { io, type Socket } from "socket.io-client";
 
-type Screen = "home" | "character-select" | "lobby";
+type Screen = "home" | "character-select" | "lobby" | "countdown" | "match" | "results";
 type FlowMode = "create" | "join" | null;
+type PressedInput = MatchInputPayload["pressed"];
 
 type AppState = {
   screen: Screen;
@@ -15,6 +29,10 @@ type AppState = {
   playerId: string;
   selectedCharacterId: string | null;
   lobby: LobbyState | null;
+  matchStarting: MatchStartingPayload | null;
+  matchSnapshot: MatchSnapshot | null;
+  matchEnded: MatchEndedPayload["summary"] | null;
+  inputFrame: number;
   statusMessage: string;
   errorMessage: string;
 };
@@ -50,6 +68,14 @@ const app = appRoot;
 
 let socket: Socket | null = null;
 let listenersAttached = false;
+let latestSnapshotReceivedAtMs = 0;
+let matchStartingAtMs = 0;
+let previousSnapshot: MatchSnapshot | null = null;
+let localPredictionByPlayerId: Record<string, { x: number; y: number; vy: number; grounded: boolean }> = {};
+let predictionAccumulatorMs = 0;
+let frameLoopStarted = false;
+let localBypassIntervalId: number | null = null;
+let localBypassServerFrame = 0;
 
 const LOBBY_MUSIC_SCREENS: Screen[] = ["home", "character-select", "lobby"];
 const lobbyMusic = new Audio("/audio/music/lobby.mp3");
@@ -74,11 +100,26 @@ const state: AppState = {
   playerId: "",
   selectedCharacterId: null,
   lobby: null,
+  matchStarting: null,
+  matchSnapshot: null,
+  matchEnded: null,
+  inputFrame: 0,
   statusMessage: "",
   errorMessage: "",
 };
 
+const pressedInput: PressedInput = {
+  left: false,
+  right: false,
+  jump: false,
+  attack: false,
+  special: false,
+};
+
 render();
+registerKeyboardInput();
+startInputEmitLoop();
+startFrameLoop();
 
 appRoot.addEventListener("click", async (event) => {
   const target = event.target as HTMLElement | null;
@@ -90,6 +131,9 @@ appRoot.addEventListener("click", async (event) => {
   const action = actionElement.dataset.action;
 
   switch (action) {
+    case "quick-test-match":
+      startLocalBypassMatch();
+      break;
     case "create-lobby":
       await handleCreateLobby();
       break;
@@ -143,6 +187,87 @@ appRoot.addEventListener("input", (event) => {
 
   render();
 });
+
+function registerKeyboardInput(): void {
+  window.addEventListener("keydown", (event) => {
+    if (event.repeat) {
+      return;
+    }
+    const tagName = (event.target as HTMLElement | null)?.tagName;
+    if (tagName === "INPUT" || tagName === "TEXTAREA") {
+      return;
+    }
+    if (applyKeyboardPress(event.code, true)) {
+      event.preventDefault();
+    }
+  });
+
+  window.addEventListener("keyup", (event) => {
+    if (applyKeyboardPress(event.code, false)) {
+      event.preventDefault();
+    }
+  });
+}
+
+function applyKeyboardPress(code: string, isPressed: boolean): boolean {
+  switch (code) {
+    case "ArrowLeft":
+    case "KeyA":
+      pressedInput.left = isPressed;
+      return true;
+    case "ArrowRight":
+    case "KeyD":
+      pressedInput.right = isPressed;
+      return true;
+    case "ArrowUp":
+    case "KeyW":
+    case "Space":
+      pressedInput.jump = isPressed;
+      return true;
+    case "KeyJ":
+      pressedInput.attack = isPressed;
+      return true;
+    case "KeyK":
+      pressedInput.special = isPressed;
+      return true;
+    default:
+      return false;
+  }
+}
+
+function startInputEmitLoop(): void {
+  const tickMs = Math.round(1000 / SERVER_TICK_RATE);
+  window.setInterval(() => {
+    if (state.screen !== "match" || !state.roomCode || !socket?.connected) {
+      return;
+    }
+
+    socket.emit(CLIENT_EVENTS.MATCH_INPUT, {
+      roomCode: state.roomCode,
+      inputFrame: state.inputFrame,
+      pressed: { ...pressedInput },
+    });
+    state.inputFrame += 1;
+  }, tickMs);
+}
+
+function startFrameLoop(): void {
+  if (frameLoopStarted) {
+    return;
+  }
+  frameLoopStarted = true;
+  let previousAtMs = performance.now();
+  const frame = (nowMs: number) => {
+    const deltaMs = Math.max(0, nowMs - previousAtMs);
+    previousAtMs = nowMs;
+    updateLocalPrediction(deltaMs);
+    if (state.screen === "match" || state.screen === "countdown") {
+      render();
+    }
+    window.requestAnimationFrame(frame);
+  };
+  window.requestAnimationFrame(frame);
+}
 
 async function handleCreateLobby(): Promise<void> {
   const displayName = normalizeDisplayName(state.displayNameInput);
@@ -209,6 +334,11 @@ async function handleReadyAfterCharacterSelect(): Promise<void> {
     return;
   }
 
+  socket?.emit(CLIENT_EVENTS.MATCH_SELECT_CHARACTER, {
+    roomCode: state.lobby.roomCode,
+    characterId: state.selectedCharacterId,
+  });
+
   socket?.emit(CLIENT_EVENTS.LOBBY_READY, {
     roomCode: state.lobby.roomCode,
     isReady: true,
@@ -216,7 +346,7 @@ async function handleReadyAfterCharacterSelect(): Promise<void> {
 
   state.screen = "lobby";
   state.errorMessage = "";
-  state.statusMessage = `Ready set. Match will use ${DEFAULT_MATCH_CHARACTER_LABEL} for now.`;
+  state.statusMessage = `Ready set with ${state.selectedCharacterId}.`;
   render();
 }
 
@@ -235,6 +365,8 @@ async function handleChangeCharacter(): Promise<void> {
 }
 
 async function leaveAndDisconnectToHome(): Promise<void> {
+  stopLocalBypassMatch();
+
   const currentRoomCode = state.lobby?.roomCode ?? state.roomCode;
   if (currentRoomCode) {
     socket?.emit(CLIENT_EVENTS.LOBBY_LEAVE, { roomCode: currentRoomCode });
@@ -248,9 +380,143 @@ async function leaveAndDisconnectToHome(): Promise<void> {
   state.playerId = "";
   state.selectedCharacterId = null;
   state.lobby = null;
+  state.matchStarting = null;
+  state.matchSnapshot = null;
+  state.matchEnded = null;
+  state.inputFrame = 0;
+  matchStartingAtMs = 0;
+  latestSnapshotReceivedAtMs = 0;
+  previousSnapshot = null;
+  localPredictionByPlayerId = {};
+  predictionAccumulatorMs = 0;
   state.statusMessage = "Disconnected.";
   state.errorMessage = "";
   render();
+}
+
+function startLocalBypassMatch(): void {
+  stopLocalBypassMatch();
+  disconnectSocket();
+
+  const displayName = normalizeDisplayName(state.displayNameInput);
+  const localPlayerId = "local-player";
+  const localCharacterId = state.selectedCharacterId ?? "fighter-1";
+
+  state.mode = null;
+  state.playerId = localPlayerId;
+  state.roomCode = "LOCAL";
+  state.lobby = null;
+  state.matchStarting = null;
+  state.matchEnded = null;
+  state.errorMessage = "";
+  state.statusMessage = "Local bypass match (no server).";
+  state.inputFrame = 0;
+  localBypassServerFrame = 0;
+  predictionAccumulatorMs = 0;
+
+  const initialSnapshot: MatchSnapshot = {
+    serverFrame: localBypassServerFrame,
+    phase: "active",
+    players: [
+      {
+        id: localPlayerId,
+        displayName,
+        characterId: localCharacterId,
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        grounded: true,
+        damage: 0,
+        stocks: 3,
+        isOutOfPlay: false,
+        respawnTimerMs: 0,
+        respawnInvulnerabilityMs: 0,
+        respawnPlatformCenterX: null,
+        respawnPlatformY: null,
+        respawnPlatformWidth: 0,
+        facing: "right",
+        action: "idle",
+      },
+    ],
+  };
+
+  state.matchSnapshot = initialSnapshot;
+  state.screen = "match";
+  localPredictionByPlayerId = {
+    [localPlayerId]: {
+      x: 0,
+      y: 0,
+      vy: 0,
+      grounded: true,
+    },
+  };
+  render();
+
+  const tickMs = Math.round(1000 / SERVER_TICK_RATE);
+  localBypassIntervalId = window.setInterval(() => {
+    const current = state.matchSnapshot;
+    if (!current || state.screen !== "match") {
+      return;
+    }
+    state.matchSnapshot = advanceLocalBypassSnapshot(current);
+  }, tickMs);
+}
+
+function stopLocalBypassMatch(): void {
+  if (localBypassIntervalId !== null) {
+    window.clearInterval(localBypassIntervalId);
+    localBypassIntervalId = null;
+  }
+}
+
+function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
+  const me = previous.players[0];
+  if (!me) {
+    return previous;
+  }
+
+  const horizontalVelocity =
+    pressedInput.left && !pressedInput.right
+      ? -LOCAL_SPEED_PER_TICK
+      : pressedInput.right && !pressedInput.left
+        ? LOCAL_SPEED_PER_TICK
+        : 0;
+
+  const jumped = pressedInput.jump && me.grounded;
+  const verticalVelocity = jumped ? LOCAL_JUMP_VELOCITY : me.vy + LOCAL_GRAVITY_PER_TICK;
+  const nextY = me.y + verticalVelocity;
+  const grounded = nextY >= 0;
+  const resolvedY = grounded ? 0 : nextY;
+  const resolvedVy = grounded ? 0 : verticalVelocity;
+  const facing = horizontalVelocity < 0 ? "left" : horizontalVelocity > 0 ? "right" : me.facing;
+  const action = pressedInput.attack
+    ? "attack"
+    : grounded
+      ? horizontalVelocity === 0
+        ? "idle"
+        : "run"
+      : resolvedVy < 0
+        ? "jump"
+        : "fall";
+
+  localBypassServerFrame += 1;
+  return {
+    serverFrame: localBypassServerFrame,
+    phase: "active",
+    players: [
+      {
+        ...me,
+        x: me.x + horizontalVelocity,
+        y: resolvedY,
+        vx: horizontalVelocity,
+        vy: resolvedVy,
+        grounded,
+        facing,
+        action,
+      },
+    ],
+  };
 }
 
 function emitMatchStart(): void {
@@ -339,7 +605,53 @@ function attachSocketListeners(activeSocket: Socket): void {
   });
 
   activeSocket.on(SERVER_EVENTS.MATCH_STARTING, (payload: MatchStartingPayload) => {
-    state.statusMessage = `Match starting in ${Math.ceil(payload.countdownMs / 1000)}s. Using ${DEFAULT_MATCH_CHARACTER_LABEL}.`;
+    state.matchStarting = payload;
+    state.matchEnded = null;
+    state.matchSnapshot = null;
+    state.screen = "countdown";
+    state.inputFrame = 0;
+    matchStartingAtMs = performance.now();
+    latestSnapshotReceivedAtMs = matchStartingAtMs;
+    previousSnapshot = null;
+    localPredictionByPlayerId = {};
+    predictionAccumulatorMs = 0;
+    state.statusMessage = `Match starting in ${Math.ceil(payload.countdownMs / 1000)}s.`;
+    render();
+  });
+
+  activeSocket.on(SERVER_EVENTS.MATCH_SNAPSHOT, (payload: MatchSnapshotPayload) => {
+    if (payload.roomCode !== state.roomCode) {
+      return;
+    }
+
+    previousSnapshot = state.matchSnapshot;
+    state.matchSnapshot = payload.snapshot;
+    state.screen = "match";
+    state.statusMessage = "";
+    state.errorMessage = "";
+    latestSnapshotReceivedAtMs = performance.now();
+
+    const nextPrediction: Record<string, { x: number; y: number; vy: number; grounded: boolean }> = {};
+    for (const player of payload.snapshot.players) {
+      const existing = localPredictionByPlayerId[player.id];
+      nextPrediction[player.id] = {
+        x: existing ? blend(existing.x, player.x, 0.2) : player.x,
+        y: existing ? blend(existing.y, player.y, 0.2) : player.y,
+        vy: player.vy,
+        grounded: player.grounded,
+      };
+    }
+    localPredictionByPlayerId = nextPrediction;
+    render();
+  });
+
+  activeSocket.on(SERVER_EVENTS.MATCH_ENDED, (payload: MatchEndedPayload) => {
+    if (payload.roomCode !== state.roomCode) {
+      return;
+    }
+    state.matchEnded = payload.summary;
+    state.screen = "results";
+    state.statusMessage = "Match ended.";
     render();
   });
 
@@ -398,6 +710,12 @@ function renderScreen(): string {
       return renderCharacterSelectScreen();
     case "lobby":
       return renderLobbyScreen();
+    case "countdown":
+      return renderCountdownScreen();
+    case "match":
+      return renderMatchScreen();
+    case "results":
+      return renderResultsScreen();
     default:
       return renderHomeScreen();
   }
@@ -531,6 +849,121 @@ function renderLobbyScreen(): string {
   `;
 }
 
+function renderCountdownScreen(): string {
+  const countdownMs = state.matchStarting?.countdownMs ?? 0;
+  const elapsedMs = Math.max(0, performance.now() - matchStartingAtMs);
+  const secondsLeft = Math.max(0, Math.ceil((countdownMs - elapsedMs) / 1000));
+
+  return `
+    <main class="shell">
+      <section class="card">
+        <h1>Match Starting</h1>
+        <p>Stage: <strong>${escapeHtml(state.matchStarting?.stageId ?? "unknown")}</strong></p>
+        <p class="countdown">${secondsLeft}</p>
+        <p>Waiting for authoritative snapshots...</p>
+        ${renderMessages()}
+      </section>
+    </main>
+  `;
+}
+
+function renderMatchScreen(): string {
+  const snapshot = state.matchSnapshot;
+  if (!snapshot) {
+    return `
+      <main class="shell">
+        <section class="card">
+          <h1>Match</h1>
+          <p>Waiting for snapshot...</p>
+          ${renderMessages()}
+        </section>
+      </main>
+    `;
+  }
+
+  const playersMarkup = snapshot.players
+    .map((player) => {
+      const predicted = localPredictionByPlayerId[player.id];
+      const x = worldToScreenX(predicted?.x ?? player.x);
+      const y = worldToScreenY(predicted?.y ?? player.y);
+      const actionState = mapActionToAnimationState(player.action);
+      const facingScale = player.facing === "left" ? -1 : 1;
+      const koClass = player.isOutOfPlay ? "arena-player--ko" : "";
+      const invulnClass = player.respawnInvulnerabilityMs > 0 ? "arena-player--invulnerable" : "";
+      const spriteUrl = getSpriteUrlForPlayer(player.characterId, player.action);
+
+      return `
+        <div
+          class="arena-player ${koClass} ${invulnClass} arena-player--anim-${actionState}"
+          style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
+        >
+          <img
+            class="arena-player__sprite"
+            src="${spriteUrl}"
+            alt="${escapeHtml(player.displayName)} ${actionState}"
+            style="transform: scaleX(${facingScale});"
+          />
+          <div class="arena-player__label">${escapeHtml(player.displayName)} (${actionState})</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  const respawnPlatformsMarkup = snapshot.players
+    .filter((player) => player.respawnInvulnerabilityMs > 0 && player.respawnPlatformCenterX !== null && player.respawnPlatformY !== null)
+    .map((player) => {
+      const centerX = worldToScreenX(player.respawnPlatformCenterX ?? 0);
+      const y = worldToScreenY(player.respawnPlatformY ?? 0);
+      return `<div class="respawn-platform" style="left:${centerX.toFixed(1)}px;top:${y.toFixed(1)}px;width:${player.respawnPlatformWidth.toFixed(1)}px"></div>`;
+    })
+    .join("");
+
+  const hudMarkup = snapshot.players
+    .map((player) => {
+      const status = player.isOutOfPlay
+        ? `KO - respawn ${Math.ceil(player.respawnTimerMs / 1000)}s`
+        : player.respawnInvulnerabilityMs > 0
+          ? `Invulnerable ${Math.ceil(player.respawnInvulnerabilityMs / 1000)}s`
+          : "In play";
+      return `<li><strong>${escapeHtml(player.displayName)}</strong> - ${player.damage}% - Stocks: ${player.stocks} - ${status}</li>`;
+    })
+    .join("");
+
+  return `
+    <main class="shell shell--wide">
+      <section class="card">
+        <h1>Match</h1>
+        <p>Authoritative snapshot rendering with temporary local prediction feel.</p>
+        <p class="controls-note">Move: A/D or Arrow keys, Jump: W/Up/Space, Attack: J, Special: K</p>
+        <div class="arena">
+          <div class="arena-floor"></div>
+          ${respawnPlatformsMarkup}
+          ${playersMarkup}
+        </div>
+        <ul class="hud-list">${hudMarkup}</ul>
+        ${renderMessages()}
+      </section>
+    </main>
+  `;
+}
+
+function renderResultsScreen(): string {
+  const summary = state.matchEnded;
+  return `
+    <main class="shell">
+      <section class="card">
+        <h1>Results</h1>
+        <p>Winner: <strong>${escapeHtml(summary?.winnerPlayerId ?? "none")}</strong></p>
+        <p>Eliminated: ${escapeHtml(summary?.eliminatedPlayerIds.join(", ") || "none")}</p>
+        <div class="row">
+          <button type="button" data-action="leave-lobby">Exit To Home</button>
+        </div>
+        ${renderMessages()}
+      </section>
+    </main>
+  `;
+}
+
 function renderMessages(): string {
   if (!state.errorMessage) return "";
   return `<p class="note note--error">${escapeHtml(state.errorMessage)}</p>`;
@@ -542,6 +975,123 @@ function normalizeRoomCode(input: string): string {
 
 function normalizeDisplayName(input: string): string {
   return input.trim().slice(0, 24) || "Player";
+}
+
+function updateLocalPrediction(deltaMs: number): void {
+  const snapshot = state.matchSnapshot;
+  if (!snapshot || state.screen !== "match") {
+    predictionAccumulatorMs = 0;
+    return;
+  }
+
+  const tickMs = 1000 / SERVER_TICK_RATE;
+  predictionAccumulatorMs += deltaMs;
+  const simulatedTicks = Math.max(0, Math.floor(predictionAccumulatorMs / tickMs));
+  if (simulatedTicks === 0) {
+    return;
+  }
+  predictionAccumulatorMs -= simulatedTicks * tickMs;
+
+  const localPlayerId = state.playerId;
+  for (const player of snapshot.players) {
+    const prediction = localPredictionByPlayerId[player.id];
+    if (!prediction) {
+      continue;
+    }
+
+    if (player.id !== localPlayerId) {
+      prediction.x = blend(prediction.x, player.x, 0.15);
+      prediction.y = blend(prediction.y, player.y, 0.15);
+      prediction.vy = player.vy;
+      prediction.grounded = player.grounded;
+      continue;
+    }
+
+    for (let index = 0; index < simulatedTicks; index += 1) {
+      const horizontalVelocity =
+        pressedInput.left && !pressedInput.right
+          ? -LOCAL_SPEED_PER_TICK
+          : pressedInput.right && !pressedInput.left
+            ? LOCAL_SPEED_PER_TICK
+            : 0;
+
+      const shouldJump = pressedInput.jump && prediction.grounded;
+      prediction.vy = shouldJump ? LOCAL_JUMP_VELOCITY : prediction.vy + LOCAL_GRAVITY_PER_TICK;
+      prediction.x += horizontalVelocity;
+      prediction.y += prediction.vy;
+
+      if (prediction.y >= 0) {
+        prediction.y = 0;
+        prediction.vy = 0;
+        prediction.grounded = true;
+      } else {
+        prediction.grounded = false;
+      }
+    }
+  }
+}
+
+function mapActionToAnimationState(action: PlayerAction): string {
+  switch (action) {
+    case "idle":
+      return "idle";
+    case "run":
+      return "run";
+    case "jump":
+      return "jump";
+    case "fall":
+      return "fall";
+    case "attack":
+      return "attack";
+    case "hitstun":
+      return "hitstun";
+    case "respawn":
+      return "respawn";
+    case "ko":
+      return "ko";
+    default:
+      return "idle";
+  }
+}
+
+function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): string {
+  const normalizedCharacterId = characterId.trim().toLowerCase();
+  const sprites = CHARACTER_SPRITES[normalizedCharacterId] ?? CHARACTER_SPRITES["fighter-1"];
+  switch (action) {
+    case "idle":
+      return sprites.stand;
+    case "run":
+      return sprites.walking;
+    case "attack":
+      return sprites.punch;
+    case "jump":
+    case "fall":
+    case "hitstun":
+      return sprites.fighting;
+    case "respawn":
+    case "ko":
+      return sprites.cheer;
+    default:
+      return sprites.stand;
+  }
+}
+
+function worldToScreenX(x: number): number {
+  const normalized = clamp((x - WORLD_MIN_X) / (WORLD_MAX_X - WORLD_MIN_X), 0, 1);
+  return normalized * ARENA_WIDTH;
+}
+
+function worldToScreenY(y: number): number {
+  const raw = GROUND_Y_PX + y;
+  return clamp(raw, 0, ARENA_HEIGHT - 4);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function blend(current: number, target: number, alpha: number): number {
+  return current + (target - current) * alpha;
 }
 
 function escapeHtml(value: string): string {
