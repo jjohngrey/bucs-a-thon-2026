@@ -100,7 +100,7 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
     matchService.scheduleMatchActivation(
       result.value.match.roomCode,
       result.value.startEvent.countdownMs,
-      ({ roomCode }) => {
+      ({ roomCode, snapshot }) => {
         const updatedLobby = lobbyStore.getLobby(roomCode);
         if (!updatedLobby) {
           return;
@@ -108,6 +108,10 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
 
         io.to(roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
           lobby: updatedLobby,
+        });
+        io.to(roomCode).emit(SERVER_EVENTS.MATCH_SNAPSHOT, {
+          roomCode,
+          snapshot,
         });
       },
     );

@@ -14,6 +14,7 @@ The server currently supports:
 - `match:start`
 - in-memory match session creation
 - countdown-driven transition from `starting` to `in-match`
+- initial `match:snapshot` emission when the match becomes active
 - cleanup of in-memory match sessions when a room breaks
 
 ## Verified Commands
@@ -41,11 +42,12 @@ corepack pnpm smoke:match-start
 - both clients receive `match:starting`
 - lobby phase moves from `waiting` to `starting`
 - after countdown, lobby phase moves to `in-match`
+- both clients receive an initial `match:snapshot`
 
 ## Not Done Yet
 
 - live `match:input` handling
-- authoritative gameplay simulation
-- `match:snapshot`
+- authoritative gameplay simulation beyond the initial snapshot
+- recurring `match:snapshot` tick loop
 - match end / winner flow
 - reconnect behavior for active matches

@@ -6,6 +6,7 @@ import {
   CLIENT_EVENTS,
   SERVER_EVENTS,
   type LobbyStatePayload,
+  type MatchSnapshotPayload,
   type MatchStartingPayload,
   type SessionJoinedPayload,
 } from "@bucs/shared";
@@ -20,6 +21,7 @@ type TestClientState = {
   session?: SessionJoinedPayload;
   lobbies: LobbyStatePayload[];
   matchStarting?: MatchStartingPayload;
+  snapshot?: MatchSnapshotPayload;
 };
 
 async function main() {
@@ -110,12 +112,26 @@ async function main() {
         waitForLobbyPhase(guest, "in-match"),
       ]);
 
+      const [hostSnapshot, guestSnapshot] = await Promise.all([
+        waitForMatchSnapshot(hostSocket, host),
+        waitForMatchSnapshot(guestSocket, guest),
+      ]);
+
       assert.equal(hostInMatchLobby.lobby.roomCode, createdLobby.lobby.roomCode);
       assert.equal(guestInMatchLobby.lobby.roomCode, createdLobby.lobby.roomCode);
       assert.equal(hostInMatchLobby.lobby.phase, "in-match");
       assert.equal(guestInMatchLobby.lobby.phase, "in-match");
+      assert.equal(hostSnapshot.roomCode, createdLobby.lobby.roomCode);
+      assert.equal(guestSnapshot.roomCode, createdLobby.lobby.roomCode);
+      assert.equal(hostSnapshot.snapshot.phase, "active");
+      assert.equal(guestSnapshot.snapshot.phase, "active");
+      assert.equal(hostSnapshot.snapshot.serverFrame, 0);
+      assert.equal(hostSnapshot.snapshot.players.length, 2);
+      assert.equal(guestSnapshot.snapshot.players.length, 2);
+      assert.equal(hostSnapshot.snapshot.players[0]?.damage, 0);
+      assert.equal(hostSnapshot.snapshot.players[0]?.stocks, 3);
 
-      console.log("Match-start countdown smoke test passed.");
+      console.log("Match-start countdown snapshot smoke test passed.");
       console.log(`Room code: ${hostMatch.roomCode}`);
     } finally {
       hostSocket.disconnect();
@@ -142,6 +158,10 @@ function attachObservers(socket: Socket, state: TestClientState) {
 
   socket.on(SERVER_EVENTS.MATCH_STARTING, (payload: MatchStartingPayload) => {
     state.matchStarting = payload;
+  });
+
+  socket.on(SERVER_EVENTS.MATCH_SNAPSHOT, (payload: MatchSnapshotPayload) => {
+    state.snapshot = payload;
   });
 }
 
@@ -221,6 +241,16 @@ async function waitForMatchStarting(socket: Socket, state: TestClientState) {
   await onceWithTimeout(socket, SERVER_EVENTS.MATCH_STARTING);
   assert.ok(state.matchStarting, "Expected match:starting payload.");
   return state.matchStarting;
+}
+
+async function waitForMatchSnapshot(socket: Socket, state: TestClientState) {
+  if (state.snapshot) {
+    return state.snapshot;
+  }
+
+  await onceWithTimeout(socket, SERVER_EVENTS.MATCH_SNAPSHOT);
+  assert.ok(state.snapshot, "Expected match:snapshot payload.");
+  return state.snapshot;
 }
 
 async function onceWithTimeout(socket: Socket, eventName: string) {
