@@ -1005,8 +1005,8 @@ input {
 
 .arena-player {
   position: absolute;
-  width: 85px;
-  height: 196px;
+  width: 64px;
+  height: 148px;
   border-radius: 10px;
   overflow: hidden;
 }
@@ -1038,13 +1038,13 @@ input {
 .arena-player__label {
   position: absolute;
   left: 50%;
-  top: -20px;
+  top: -18px;
   transform: translateX(-50%);
-  font-size: 11px;
+  font-size: 10px;
   white-space: nowrap;
   background: rgba(255, 255, 255, 0.92);
   border-radius: 4px;
-  padding: 1px 6px;
+  padding: 1px 5px;
   pointer-events: none;
 }
 

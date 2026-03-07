@@ -104,7 +104,7 @@ Important detail:
   - one attack input
   - melee hit detection
   - damage
-  - damage-scaled knockback launch
+  - exponential knockback launch
   - hitstun
 - the current backend stock lifecycle now applies:
   - blast-zone KO detection
