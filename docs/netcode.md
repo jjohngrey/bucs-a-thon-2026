@@ -39,6 +39,7 @@ This is a simple snapshot model, not rollback netcode.
 - `match:starting`
 - `match:snapshot`
 - `match:ended`
+- `player:disconnected`
 
 ## Match lifecycle
 

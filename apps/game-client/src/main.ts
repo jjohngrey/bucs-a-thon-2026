@@ -226,6 +226,7 @@ const secondaryPressedInput: PressedInput = {
   right: false,
   jump: false,
   attack: false,
+  kick: false,
   special: false,
 };
 
@@ -954,6 +955,18 @@ function attachSocketListeners(activeSocket: Socket): void {
     render();
   });
 
+  activeSocket.on(SERVER_EVENTS.PLAYER_DISCONNECTED, (payload) => {
+    if (payload.roomCode !== state.roomCode) {
+      return;
+    }
+
+    const disconnectedPlayer = state.lobby?.players.find((player) => player.id === payload.playerId);
+    state.statusMessage = disconnectedPlayer
+      ? `${disconnectedPlayer.displayName} disconnected.`
+      : "A player disconnected.";
+    render();
+  });
+
   activeSocket.on(SERVER_EVENTS.LOBBY_ERROR, (payload: { code: string; message: string }) => {
     state.errorMessage = `${payload.code}: ${payload.message}`;
     state.statusMessage = "";
@@ -1421,11 +1434,13 @@ function resetPressedInputs(): void {
   pressedInput.right = false;
   pressedInput.jump = false;
   pressedInput.attack = false;
+  pressedInput.kick = false;
   pressedInput.special = false;
   secondaryPressedInput.left = false;
   secondaryPressedInput.right = false;
   secondaryPressedInput.jump = false;
   secondaryPressedInput.attack = false;
+  secondaryPressedInput.kick = false;
   secondaryPressedInput.special = false;
 }
 
