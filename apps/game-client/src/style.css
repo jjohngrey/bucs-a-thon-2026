@@ -42,6 +42,37 @@ input {
   padding: 24px;
 }
 
+.mute-btn {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 1000;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 2px solid var(--retro-border);
+  border-radius: 8px;
+  background: var(--retro-panel);
+  color: var(--retro-text);
+  font-size: 1.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.mute-btn:hover {
+  transform: scale(1.05);
+}
+
+.mute-btn-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
 .shell {
   width: 100%;
   max-width: 760px;
