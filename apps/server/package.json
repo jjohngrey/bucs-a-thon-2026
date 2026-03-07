@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "smoke:lobby": "tsx scripts/lobbySmokeTest.ts",
-    "smoke:match-start": "tsx scripts/matchStartSmokeTest.ts"
+    "smoke:match-start": "tsx scripts/matchStartSmokeTest.ts",
+    "smoke:match-end": "tsx scripts/matchEndSmokeTest.ts"
   },
   "dependencies": {
     "@bucs/shared": "workspace:*",

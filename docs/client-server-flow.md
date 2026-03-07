@@ -84,6 +84,7 @@ This is the plain-English version of how the client and server talk to each othe
   - the server emits an initial `match:snapshot`
 - while the match is active, the server keeps emitting `match:snapshot` on a tick
 - clients can send `match:input`, and the server stores the latest input for each player
+- a client can trigger `match:end` to end the current match lifecycle
 
 The live gameplay loop is still the next step:
 
@@ -101,7 +102,17 @@ The live gameplay loop is still the next step:
 - If players remain, the server broadcasts a new `lobby:state`.
 - If the lobby becomes empty, the lobby is removed from memory.
 
-## 9. Source of truth
+## 9. Match end
+
+- When `match:end` is sent for an active room, the server:
+  - stops the active match interval
+  - removes the in-memory match session
+  - updates lobby phase to `finished`
+  - broadcasts `lobby:state`
+  - broadcasts `match:ended` with the winner summary
+- The next client-side step after that should be a results screen and return-to-lobby flow.
+
+## 10. Source of truth
 
 - The client is responsible for UI, rendering, and player input.
 - The server is responsible for lobby membership, ready state, and match start validation.

@@ -3,6 +3,7 @@ import type {
   LobbyJoinPayload,
   LobbyLeavePayload,
   LobbyReadyPayload,
+  MatchEndPayload,
   MatchInputPayload,
   MatchStartPayload,
 } from "@bucs/shared";
@@ -129,6 +130,26 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
     if (!result.ok) {
       socket.emit(SERVER_EVENTS.LOBBY_ERROR, result.error);
     }
+  });
+
+  socket.on(CLIENT_EVENTS.MATCH_END, (payload: MatchEndPayload) => {
+    const result = matchService.endMatch(socket.id, payload);
+    if (!result.ok) {
+      socket.emit(SERVER_EVENTS.LOBBY_ERROR, result.error);
+      return;
+    }
+
+    const updatedLobby = lobbyStore.getLobby(result.value.roomCode);
+    if (updatedLobby) {
+      io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
+        lobby: updatedLobby,
+      });
+    }
+
+    io.to(result.value.roomCode).emit(SERVER_EVENTS.MATCH_ENDED, {
+      roomCode: result.value.roomCode,
+      summary: result.value.summary,
+    });
   });
 
   socket.onAny((eventName, payload) => {

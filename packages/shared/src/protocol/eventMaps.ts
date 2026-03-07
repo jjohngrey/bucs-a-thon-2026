@@ -1,4 +1,5 @@
 import type {
+  MatchEndPayload,
   LobbyCreatePayload,
   LobbyJoinPayload,
   LobbyLeavePayload,
@@ -27,6 +28,7 @@ export type ClientToServerEventMap = {
   [CLIENT_EVENTS.MATCH_SELECT_CHARACTER]: (payload: MatchSelectCharacterPayload) => void;
   [CLIENT_EVENTS.MATCH_SELECT_STAGE]: (payload: MatchSelectStagePayload) => void;
   [CLIENT_EVENTS.MATCH_START]: (payload: MatchStartPayload) => void;
+  [CLIENT_EVENTS.MATCH_END]: (payload: MatchEndPayload) => void;
   [CLIENT_EVENTS.MATCH_INPUT]: (payload: MatchInputPayload) => void;
 };
 

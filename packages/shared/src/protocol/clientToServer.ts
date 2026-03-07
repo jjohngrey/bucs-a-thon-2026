@@ -30,6 +30,12 @@ export type MatchStartPayload = {
   roomCode: string;
 };
 
+export type MatchEndPayload = {
+  roomCode: string;
+  winnerPlayerId: string | null;
+  eliminatedPlayerIds: string[];
+};
+
 export type MatchInputPayload = {
   roomCode: string;
   inputFrame: number;

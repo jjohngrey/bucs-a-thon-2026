@@ -94,6 +94,7 @@ Implemented:
 - countdown transition from `starting` to `in-match`
 - initial `match:snapshot` emission on match activation
 - recurring active-match snapshots and in-memory input handling
+- explicit `match:end` and `match:ended` flow
 - smoke tests for lobby and match start
 
 Checked:

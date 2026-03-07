@@ -6,6 +6,7 @@ export const CLIENT_EVENTS = {
   MATCH_SELECT_CHARACTER: "match:select-character",
   MATCH_SELECT_STAGE: "match:select-stage",
   MATCH_START: "match:start",
+  MATCH_END: "match:end",
   MATCH_INPUT: "match:input",
 } as const;
 
