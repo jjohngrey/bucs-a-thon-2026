@@ -39,6 +39,10 @@ The server currently supports:
   - respawn-platform snapshot data
 - automatic win detection when one player has stocks left
 - explicit `match:end` handling with `match:ended` broadcast
+- active-match departure handling:
+  - if a player leaves or disconnects during `starting` or `in-match`
+  - the server ends the match immediately
+  - the remaining room receives `match:ended`
 - cleanup of in-memory match sessions when a room breaks
 - shared stage and rules data now drive:
   - floor height
@@ -58,6 +62,7 @@ corepack pnpm smoke:match-start
 corepack pnpm smoke:combat
 corepack pnpm smoke:stocks
 corepack pnpm smoke:auto-win
+corepack pnpm smoke:match-disconnect
 corepack pnpm smoke:match-end
 corepack pnpm smoke:return-lobby
 ```
@@ -103,6 +108,13 @@ corepack pnpm smoke:return-lobby
 - the server detects the last player with stocks left
 - the server emits `match:ended` automatically
 - lobby phase moves to `finished` without client `match:end`
+
+### `smoke:match-disconnect`
+
+- a player can disconnect during an active match
+- the server ends the match immediately
+- the remaining player receives `match:ended`
+- lobby phase moves to `finished`
 
 ### `smoke:match-end`
 

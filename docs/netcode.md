@@ -50,6 +50,7 @@ This is a simple snapshot model, not rollback netcode.
 8. Server emits an initial `match:snapshot`
 9. Server continues emitting snapshots on a fixed interval
 10. Clients send `match:input` between snapshots
+11. If a player leaves during `countdown` or `active`, the server ends the match and emits `match:ended`
 
 ## Current match simulation
 
@@ -133,6 +134,7 @@ The server smoke tests currently verify:
 - combat hit, damage, knockback, and hitstun
 - blast-zone KO, stock loss, and respawn
 - automatic win detection
+- active-match disconnect termination
 - match end
 - return to lobby
 

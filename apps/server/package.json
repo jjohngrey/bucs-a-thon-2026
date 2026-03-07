@@ -14,6 +14,7 @@
     "smoke:combat": "tsx scripts/combatSmokeTest.ts",
     "smoke:stocks": "tsx scripts/stocksSmokeTest.ts",
     "smoke:auto-win": "tsx scripts/autoWinSmokeTest.ts",
+    "smoke:match-disconnect": "tsx scripts/matchDisconnectSmokeTest.ts",
     "smoke:match-end": "tsx scripts/matchEndSmokeTest.ts",
     "smoke:return-lobby": "tsx scripts/returnToLobbySmokeTest.ts"
   },

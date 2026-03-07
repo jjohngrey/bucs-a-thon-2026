@@ -22,6 +22,7 @@ The backend already simulates:
 - respawn invulnerability
 - automatic win detection when one player remains
 - stage floor, blast zone, spawn points, and respawn settings from shared content
+- immediate match termination if a player disconnects mid-match
 
 That means the client gameplay code should not become a second source of truth for match results.
 

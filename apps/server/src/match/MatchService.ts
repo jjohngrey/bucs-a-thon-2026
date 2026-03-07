@@ -73,6 +73,11 @@ export type AutoEndMatchResult = {
   summary: MatchSummary;
 };
 
+export type DepartureMatchResult = {
+  roomCode: string;
+  summary: MatchSummary;
+};
+
 const DEFAULT_COUNTDOWN_MS = 3000;
 const PLAYER_SPEED_PER_TICK = 6;
 const TICK_DURATION_MS = 1000 / SERVER_TICK_RATE;
@@ -347,6 +352,43 @@ export class MatchService {
           winnerPlayerId: payload.winnerPlayerId,
           eliminatedPlayerIds: payload.eliminatedPlayerIds,
         },
+      },
+    };
+  }
+
+  endMatchForDeparture(roomCode: string, departingPlayerId: string): DepartureMatchResult | null {
+    const normalizedRoomCode = normalizeRoomCode(roomCode);
+    const match = this.matchStore.getMatch(normalizedRoomCode);
+    if (!match) {
+      return null;
+    }
+
+    if (match.phase !== "countdown" && match.phase !== "active") {
+      return null;
+    }
+
+    const lobby = this.lobbyStore.getLobby(normalizedRoomCode);
+
+    this.cleanupMatchForRoom(normalizedRoomCode);
+
+    if (!lobby) {
+      return {
+        roomCode: normalizedRoomCode,
+        summary: {
+          winnerPlayerId: null,
+          eliminatedPlayerIds: [departingPlayerId],
+        },
+      };
+    }
+
+    this.lobbyStore.updateLobbyPhase(normalizedRoomCode, "finished");
+    const winnerPlayerId = lobby.players.length === 1 ? lobby.players[0]?.id ?? null : null;
+
+    return {
+      roomCode: normalizedRoomCode,
+      summary: {
+        winnerPlayerId,
+        eliminatedPlayerIds: [departingPlayerId],
       },
     };
   }

@@ -63,6 +63,7 @@ Implemented:
 - blast-zone KO, stock decrement, and respawn lifecycle on the server
 - automatic server-side win detection
 - shared stage and rules content for floor, blast zone, spawns, and respawn settings
+- active-match disconnect handling
 - smoke tests for lobby, match start, combat, match end, and return to lobby
 
 Smoke test commands:
@@ -72,5 +73,6 @@ Smoke test commands:
 - `corepack pnpm smoke:combat`
 - `corepack pnpm smoke:stocks`
 - `corepack pnpm smoke:auto-win`
+- `corepack pnpm smoke:match-disconnect`
 - `corepack pnpm smoke:match-end`
 - `corepack pnpm smoke:return-lobby`

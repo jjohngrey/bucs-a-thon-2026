@@ -114,7 +114,10 @@ Important detail:
 - A client can explicitly send `lobby:leave`.
 - Or the socket can disconnect unexpectedly.
 - In either case, the server removes that player from the lobby.
-- If a match session exists for that room, the server removes the in-memory match session too.
+- If that room is in `starting` or `in-match`, the server ends the match immediately.
+- The remaining players receive `match:ended`.
+- The lobby phase moves to `finished`.
+- If no live match is active, the server just removes the in-memory match session if one exists.
 - If the host leaves but players remain, the first remaining player becomes the new host.
 - If players remain, the server broadcasts a new `lobby:state`.
 - If the lobby becomes empty, the lobby is removed from memory.

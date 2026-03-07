@@ -62,12 +62,25 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
       return;
     }
 
-    matchService.cleanupMatchForRoom(result.value.roomCode);
+    const departureMatchResult = matchService.endMatchForDeparture(
+      result.value.roomCode,
+      result.value.playerId,
+    );
+    if (!departureMatchResult) {
+      matchService.cleanupMatchForRoom(result.value.roomCode);
+    }
     socket.leave(result.value.roomCode);
 
     if (result.value.lobby) {
       io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
         lobby: result.value.lobby,
+      });
+    }
+
+    if (departureMatchResult) {
+      io.to(departureMatchResult.roomCode).emit(SERVER_EVENTS.MATCH_ENDED, {
+        roomCode: departureMatchResult.roomCode,
+        summary: departureMatchResult.summary,
       });
     }
   });
@@ -200,7 +213,13 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
       return;
     }
 
-    matchService.cleanupMatchForRoom(result.value.roomCode);
+    const departureMatchResult = matchService.endMatchForDeparture(
+      result.value.roomCode,
+      result.value.playerId,
+    );
+    if (!departureMatchResult) {
+      matchService.cleanupMatchForRoom(result.value.roomCode);
+    }
 
     if (!result.value.lobby) {
       return;
@@ -209,5 +228,12 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
     io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
       lobby: result.value.lobby,
     });
+
+    if (departureMatchResult) {
+      io.to(departureMatchResult.roomCode).emit(SERVER_EVENTS.MATCH_ENDED, {
+        roomCode: departureMatchResult.roomCode,
+        summary: departureMatchResult.summary,
+      });
+    }
   });
 }

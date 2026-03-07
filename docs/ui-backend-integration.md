@@ -24,6 +24,7 @@ The server already owns:
 - respawn timer
 - respawn invulnerability
 - automatic win detection when one player remains
+- active-match disconnect handling
 - match end
 - return to lobby
 - stage floor, blast zone, spawn points, and respawn settings from shared content
@@ -215,6 +216,7 @@ Use it to render the results screen.
 Important:
 
 - the server can emit `match:ended` automatically when only one player has stocks left
+- the server can also emit `match:ended` if a player leaves or disconnects mid-match
 - client `match:end` is still available, but it is no longer the only end path
 
 Return to lobby:
