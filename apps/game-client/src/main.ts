@@ -40,8 +40,84 @@ type AppState = {
 const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
 const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
-const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"] as const;
-const CHARACTER_DISPLAY: Record<(typeof CHARACTER_CHOICES)[number], { name: string; stand: string }> = {
+const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
+const WORLD_MIN_X = -200;
+const WORLD_MAX_X = 1400;
+const ARENA_WIDTH = 840;
+const ARENA_HEIGHT = 360;
+const GROUND_Y_PX = 280;
+const LOCAL_SPEED_PER_TICK = 6;
+const LOCAL_JUMP_VELOCITY = -14;
+const LOCAL_GRAVITY_PER_TICK = 1.2;
+
+type CharacterSpriteSet = {
+  stand: string;
+  walking: string;
+  punch: string;
+  fighting: string;
+  cheer: string;
+};
+
+const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
+  "fighter-1": {
+    stand: "/assets/jay/jay_stand.png",
+    walking: "/assets/jay/jay_walking.png",
+    punch: "/assets/jay/jay_punch.png",
+    fighting: "/assets/jay/jay_fighting.png",
+    cheer: "/assets/jay/jay_cheer.png",
+  },
+  "fighter-2": {
+    stand: "/assets/jia/jia_stand.png",
+    walking: "/assets/jia/jia_walking.png",
+    punch: "/assets/jia/jia_punch.png",
+    fighting: "/assets/jia/jia_fighting.png",
+    cheer: "/assets/jia/jia%20cheer.png",
+  },
+  "fighter-3": {
+    stand: "/assets/ryan/ryan_stand.png",
+    walking: "/assets/ryan/ryan%20walking.png",
+    punch: "/assets/ryan/ryan_punch.png",
+    fighting: "/assets/ryan/ryan_fighting.png",
+    cheer: "/assets/ryan/ryan_cheer.png",
+  },
+  "fighter-4": {
+    stand: "/assets/fahim/fahim_stand.png",
+    walking: "/assets/fahim/fahim_walking.png",
+    punch: "/assets/fahim/fahim_punch.png",
+    fighting: "/assets/fahim/fahim_fighting.png",
+    cheer: "/assets/fahim/fahim_cheer.png",
+  },
+  jay: {
+    stand: "/assets/jay/jay_stand.png",
+    walking: "/assets/jay/jay_walking.png",
+    punch: "/assets/jay/jay_punch.png",
+    fighting: "/assets/jay/jay_fighting.png",
+    cheer: "/assets/jay/jay_cheer.png",
+  },
+  jia: {
+    stand: "/assets/jia/jia_stand.png",
+    walking: "/assets/jia/jia_walking.png",
+    punch: "/assets/jia/jia_punch.png",
+    fighting: "/assets/jia/jia_fighting.png",
+    cheer: "/assets/jia/jia%20cheer.png",
+  },
+  ryan: {
+    stand: "/assets/ryan/ryan_stand.png",
+    walking: "/assets/ryan/ryan%20walking.png",
+    punch: "/assets/ryan/ryan_punch.png",
+    fighting: "/assets/ryan/ryan_fighting.png",
+    cheer: "/assets/ryan/ryan_cheer.png",
+  },
+  fahim: {
+    stand: "/assets/fahim/fahim_stand.png",
+    walking: "/assets/fahim/fahim_walking.png",
+    punch: "/assets/fahim/fahim_punch.png",
+    fighting: "/assets/fahim/fahim_fighting.png",
+    cheer: "/assets/fahim/fahim_cheer.png",
+  },
+};
+
+const CHARACTER_DISPLAY: Record<string, { name: string; stand: string }> = {
   "fighter-1": { name: "Jay", stand: "/assets/jay/jay_stand.png" },
   "fighter-2": { name: "Fahim", stand: "/assets/fahim/fahim_stand.png" },
   "fighter-3": { name: "Ryan", stand: "/assets/ryan/ryan_stand.png" },
@@ -870,11 +946,30 @@ function renderCountdownScreen(): string {
 function renderMatchScreen(): string {
   const snapshot = state.matchSnapshot;
   if (!snapshot) {
+    const placeholderPlayers = (state.lobby?.players ?? [])
+      .map((player, index) => {
+        const x = 260 + index * 260;
+        const y = 280;
+        return `
+          <div
+            class="arena-player arena-player--placeholder"
+            style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
+          >
+            <div class="arena-player__label">${escapeHtml(player.displayName)} (loading)</div>
+          </div>
+        `;
+      })
+      .join("");
+
     return `
-      <main class="shell">
+      <main class="shell shell--wide">
         <section class="card">
           <h1>Match</h1>
           <p>Waiting for snapshot...</p>
+          <div class="arena">
+            <div class="arena-floor"></div>
+            ${placeholderPlayers}
+          </div>
           ${renderMessages()}
         </section>
       </main>
@@ -901,6 +996,7 @@ function renderMatchScreen(): string {
             class="arena-player__sprite"
             src="${spriteUrl}"
             alt="${escapeHtml(player.displayName)} ${actionState}"
+            onerror="this.style.display='none'"
             style="transform: scaleX(${facingScale});"
           />
           <div class="arena-player__label">${escapeHtml(player.displayName)} (${actionState})</div>
