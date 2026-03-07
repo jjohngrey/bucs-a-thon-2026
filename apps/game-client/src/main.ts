@@ -50,6 +50,73 @@ const LOCAL_SPEED_PER_TICK = 6;
 const LOCAL_JUMP_VELOCITY = -14;
 const LOCAL_GRAVITY_PER_TICK = 1.2;
 
+type CharacterSpriteSet = {
+  stand: string;
+  walking: string;
+  punch: string;
+  fighting: string;
+  cheer: string;
+};
+
+const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
+  "fighter-1": {
+    stand: "/assets/jay/jay_stand.png",
+    walking: "/assets/jay/jay_walking.png",
+    punch: "/assets/jay/jay_punch.png",
+    fighting: "/assets/jay/jay_fighting.png",
+    cheer: "/assets/jay/jay_cheer.png",
+  },
+  "fighter-2": {
+    stand: "/assets/jia/jia_stand.png",
+    walking: "/assets/jia/jia_walking.png",
+    punch: "/assets/jia/jia_punch.png",
+    fighting: "/assets/jia/jia_fighting.png",
+    cheer: "/assets/jia/jia%20cheer.png",
+  },
+  "fighter-3": {
+    stand: "/assets/ryan/ryan_stand.png",
+    walking: "/assets/ryan/ryan%20walking.png",
+    punch: "/assets/ryan/ryan_punch.png",
+    fighting: "/assets/ryan/ryan_fighting.png",
+    cheer: "/assets/ryan/ryan_cheer.png",
+  },
+  "fighter-4": {
+    stand: "/assets/fahim/fahim_stand.png",
+    walking: "/assets/fahim/fahim_walking.png",
+    punch: "/assets/fahim/fahim_punch.png",
+    fighting: "/assets/fahim/fahim_fighting.png",
+    cheer: "/assets/fahim/fahim_cheer.png",
+  },
+  jay: {
+    stand: "/assets/jay/jay_stand.png",
+    walking: "/assets/jay/jay_walking.png",
+    punch: "/assets/jay/jay_punch.png",
+    fighting: "/assets/jay/jay_fighting.png",
+    cheer: "/assets/jay/jay_cheer.png",
+  },
+  jia: {
+    stand: "/assets/jia/jia_stand.png",
+    walking: "/assets/jia/jia_walking.png",
+    punch: "/assets/jia/jia_punch.png",
+    fighting: "/assets/jia/jia_fighting.png",
+    cheer: "/assets/jia/jia%20cheer.png",
+  },
+  ryan: {
+    stand: "/assets/ryan/ryan_stand.png",
+    walking: "/assets/ryan/ryan%20walking.png",
+    punch: "/assets/ryan/ryan_punch.png",
+    fighting: "/assets/ryan/ryan_fighting.png",
+    cheer: "/assets/ryan/ryan_cheer.png",
+  },
+  fahim: {
+    stand: "/assets/fahim/fahim_stand.png",
+    walking: "/assets/fahim/fahim_walking.png",
+    punch: "/assets/fahim/fahim_punch.png",
+    fighting: "/assets/fahim/fahim_fighting.png",
+    cheer: "/assets/fahim/fahim_cheer.png",
+  },
+};
+
 function resolveServerUrl(): string {
   const configuredServerUrl = import.meta.env.VITE_SERVER_URL?.trim();
   if (!configuredServerUrl) {
@@ -73,7 +140,10 @@ let latestSnapshotReceivedAtMs = 0;
 let matchStartingAtMs = 0;
 let previousSnapshot: MatchSnapshot | null = null;
 let localPredictionByPlayerId: Record<string, { x: number; y: number; vy: number; grounded: boolean }> = {};
+let predictionAccumulatorMs = 0;
 let frameLoopStarted = false;
+let localBypassIntervalId: number | null = null;
+let localBypassServerFrame = 0;
 
 const state: AppState = {
   screen: "home",
@@ -116,6 +186,9 @@ appRoot.addEventListener("click", async (event) => {
   const action = actionElement.dataset.action;
 
   switch (action) {
+    case "quick-test-match":
+      startLocalBypassMatch();
+      break;
     case "create-lobby":
       await handleCreateLobby();
       break;
@@ -347,6 +420,8 @@ async function handleChangeCharacter(): Promise<void> {
 }
 
 async function leaveAndDisconnectToHome(): Promise<void> {
+  stopLocalBypassMatch();
+
   const currentRoomCode = state.lobby?.roomCode ?? state.roomCode;
   if (currentRoomCode) {
     socket?.emit(CLIENT_EVENTS.LOBBY_LEAVE, { roomCode: currentRoomCode });
@@ -368,9 +443,135 @@ async function leaveAndDisconnectToHome(): Promise<void> {
   latestSnapshotReceivedAtMs = 0;
   previousSnapshot = null;
   localPredictionByPlayerId = {};
+  predictionAccumulatorMs = 0;
   state.statusMessage = "Disconnected.";
   state.errorMessage = "";
   render();
+}
+
+function startLocalBypassMatch(): void {
+  stopLocalBypassMatch();
+  disconnectSocket();
+
+  const displayName = normalizeDisplayName(state.displayNameInput);
+  const localPlayerId = "local-player";
+  const localCharacterId = state.selectedCharacterId ?? "fighter-1";
+
+  state.mode = null;
+  state.playerId = localPlayerId;
+  state.roomCode = "LOCAL";
+  state.lobby = null;
+  state.matchStarting = null;
+  state.matchEnded = null;
+  state.errorMessage = "";
+  state.statusMessage = "Local bypass match (no server).";
+  state.inputFrame = 0;
+  localBypassServerFrame = 0;
+  predictionAccumulatorMs = 0;
+
+  const initialSnapshot: MatchSnapshot = {
+    serverFrame: localBypassServerFrame,
+    phase: "active",
+    players: [
+      {
+        id: localPlayerId,
+        displayName,
+        characterId: localCharacterId,
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        grounded: true,
+        damage: 0,
+        stocks: 3,
+        isOutOfPlay: false,
+        respawnTimerMs: 0,
+        respawnInvulnerabilityMs: 0,
+        respawnPlatformCenterX: null,
+        respawnPlatformY: null,
+        respawnPlatformWidth: 0,
+        facing: "right",
+        action: "idle",
+      },
+    ],
+  };
+
+  state.matchSnapshot = initialSnapshot;
+  state.screen = "match";
+  localPredictionByPlayerId = {
+    [localPlayerId]: {
+      x: 0,
+      y: 0,
+      vy: 0,
+      grounded: true,
+    },
+  };
+  render();
+
+  const tickMs = Math.round(1000 / SERVER_TICK_RATE);
+  localBypassIntervalId = window.setInterval(() => {
+    const current = state.matchSnapshot;
+    if (!current || state.screen !== "match") {
+      return;
+    }
+    state.matchSnapshot = advanceLocalBypassSnapshot(current);
+  }, tickMs);
+}
+
+function stopLocalBypassMatch(): void {
+  if (localBypassIntervalId !== null) {
+    window.clearInterval(localBypassIntervalId);
+    localBypassIntervalId = null;
+  }
+}
+
+function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
+  const me = previous.players[0];
+  if (!me) {
+    return previous;
+  }
+
+  const horizontalVelocity =
+    pressedInput.left && !pressedInput.right
+      ? -LOCAL_SPEED_PER_TICK
+      : pressedInput.right && !pressedInput.left
+        ? LOCAL_SPEED_PER_TICK
+        : 0;
+
+  const jumped = pressedInput.jump && me.grounded;
+  const verticalVelocity = jumped ? LOCAL_JUMP_VELOCITY : me.vy + LOCAL_GRAVITY_PER_TICK;
+  const nextY = me.y + verticalVelocity;
+  const grounded = nextY >= 0;
+  const resolvedY = grounded ? 0 : nextY;
+  const resolvedVy = grounded ? 0 : verticalVelocity;
+  const facing = horizontalVelocity < 0 ? "left" : horizontalVelocity > 0 ? "right" : me.facing;
+  const action = pressedInput.attack
+    ? "attack"
+    : grounded
+      ? horizontalVelocity === 0
+        ? "idle"
+        : "run"
+      : resolvedVy < 0
+        ? "jump"
+        : "fall";
+
+  localBypassServerFrame += 1;
+  return {
+    serverFrame: localBypassServerFrame,
+    phase: "active",
+    players: [
+      {
+        ...me,
+        x: me.x + horizontalVelocity,
+        y: resolvedY,
+        vx: horizontalVelocity,
+        vy: resolvedVy,
+        grounded,
+        facing,
+        action,
+      },
+    ],
+  };
 }
 
 function emitMatchStart(): void {
@@ -468,6 +669,7 @@ function attachSocketListeners(activeSocket: Socket): void {
     latestSnapshotReceivedAtMs = matchStartingAtMs;
     previousSnapshot = null;
     localPredictionByPlayerId = {};
+    predictionAccumulatorMs = 0;
     state.statusMessage = `Match starting in ${Math.ceil(payload.countdownMs / 1000)}s.`;
     render();
   });
@@ -572,6 +774,7 @@ function renderHomeScreen(): string {
 
         <div class="home-actions">
           <button type="button" data-action="create-lobby" ${state.isConnecting ? "disabled" : ""}>Create Lobby</button>
+          <button type="button" data-action="quick-test-match" ${state.isConnecting ? "disabled" : ""}>Quick Test Match (Local)</button>
         </div>
 
         <div class="inline-join">
@@ -701,12 +904,19 @@ function renderMatchScreen(): string {
       const facingScale = player.facing === "left" ? -1 : 1;
       const koClass = player.isOutOfPlay ? "arena-player--ko" : "";
       const invulnClass = player.respawnInvulnerabilityMs > 0 ? "arena-player--invulnerable" : "";
+      const spriteUrl = getSpriteUrlForPlayer(player.characterId, player.action);
 
       return `
         <div
           class="arena-player ${koClass} ${invulnClass} arena-player--anim-${actionState}"
-          style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%) scaleX(${facingScale});"
+          style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
         >
+          <img
+            class="arena-player__sprite"
+            src="${spriteUrl}"
+            alt="${escapeHtml(player.displayName)} ${actionState}"
+            style="transform: scaleX(${facingScale});"
+          />
           <div class="arena-player__label">${escapeHtml(player.displayName)} (${actionState})</div>
         </div>
       `;
@@ -793,14 +1003,17 @@ function normalizeDisplayName(input: string): string {
 function updateLocalPrediction(deltaMs: number): void {
   const snapshot = state.matchSnapshot;
   if (!snapshot || state.screen !== "match") {
+    predictionAccumulatorMs = 0;
     return;
   }
 
   const tickMs = 1000 / SERVER_TICK_RATE;
-  const simulatedTicks = Math.max(0, Math.floor(deltaMs / tickMs));
+  predictionAccumulatorMs += deltaMs;
+  const simulatedTicks = Math.max(0, Math.floor(predictionAccumulatorMs / tickMs));
   if (simulatedTicks === 0) {
     return;
   }
+  predictionAccumulatorMs -= simulatedTicks * tickMs;
 
   const localPlayerId = state.playerId;
   for (const player of snapshot.players) {
@@ -861,6 +1074,28 @@ function mapActionToAnimationState(action: PlayerAction): string {
       return "ko";
     default:
       return "idle";
+  }
+}
+
+function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): string {
+  const normalizedCharacterId = characterId.trim().toLowerCase();
+  const sprites = CHARACTER_SPRITES[normalizedCharacterId] ?? CHARACTER_SPRITES["fighter-1"];
+  switch (action) {
+    case "idle":
+      return sprites.stand;
+    case "run":
+      return sprites.walking;
+    case "attack":
+      return sprites.punch;
+    case "jump":
+    case "fall":
+    case "hitstun":
+      return sprites.fighting;
+    case "respawn":
+    case "ko":
+      return sprites.cheer;
+    default:
+      return sprites.stand;
   }
 }
 

@@ -5,7 +5,7 @@ interface MoveSystemConfig {
 }
 
 const DEFAULT_CONFIG: MoveSystemConfig = {
-  moveSpeedPerSecond: 360
+  moveSpeedPerSecond: 720
 };
 
 export interface MoveSystemContext {
