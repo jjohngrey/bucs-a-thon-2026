@@ -1,68 +1,74 @@
 # UI Backend Integration
 
-This doc is for the frontend/UI person.
-
-It explains how to talk to the backend today without digging through the server code.
+This is the simple handoff doc for the client/UI person.
 
 ## Backend URL
 
-- Local server default: `http://127.0.0.1:3001`
-- Health check: `GET /health`
-- Realtime transport: Socket.IO
+- local server: `http://127.0.0.1:3001`
+- health check: `GET /health`
+- transport: Socket.IO
 
-## What the UI should do
+## What the backend already does
 
-The UI should:
+The server already owns:
 
-- open one Socket.IO connection when the game/app loads
-- keep track of:
-  - `playerId` from `session:joined`
-  - latest `lobby:state`
-  - latest `match:snapshot`
-  - any `lobby:error`
-- render screens from server state instead of inventing local truth
+- lobby create / join / leave
+- ready state
+- host start permissions
+- match countdown
+- live `match:snapshot` updates
+- movement, jump, gravity, and floor collision
+- attack, damage, knockback, and hitstun
+- blast-zone KO detection
+- stock decrement
+- respawn timer
+- respawn invulnerability
+- match end
+- return to lobby
 
-## Recommended client setup
+The UI should render this state, not simulate it again.
 
-Import shared event names and payload types from `@bucs/shared` so the client and server stay aligned.
+## What the client should store
 
-Example:
+Keep a small shared state with:
 
-```ts
-import { io } from "socket.io-client";
-import { CLIENT_EVENTS, SERVER_EVENTS, type LobbyStatePayload } from "@bucs/shared";
+- `playerId`
+- latest `lobby:state`
+- latest `match:snapshot`
+- latest `match:ended`
+- latest `lobby:error`
 
-const socket = io("http://127.0.0.1:3001", {
-  transports: ["websocket"],
-});
+That is enough for the current flow.
 
-socket.on(SERVER_EVENTS.SESSION_JOINED, (payload) => {
-  console.log("playerId", payload.playerId);
-});
+## Socket events
 
-socket.on(SERVER_EVENTS.LOBBY_STATE, (payload: LobbyStatePayload) => {
-  console.log("lobby", payload.lobby);
-});
+Listen for:
 
-socket.on(SERVER_EVENTS.LOBBY_ERROR, (payload) => {
-  console.error(payload.code, payload.message);
-});
-```
+- `session:joined`
+- `lobby:state`
+- `lobby:error`
+- `match:starting`
+- `match:snapshot`
+- `match:ended`
 
-## Main screen flow
+Emit:
 
-### 1. Home screen
+- `lobby:create`
+- `lobby:join`
+- `lobby:leave`
+- `lobby:ready`
+- `lobby:return`
+- `match:start`
+- `match:input`
+- `match:end`
 
-When the app opens:
+Import event names and payload types from `@bucs/shared`.
 
-- connect socket
-- wait for user action
+## Screen-by-screen behavior
 
-The socket connecting does not automatically put the player in a room.
+### Menu
 
-### 2. Create lobby screen
-
-Send:
+Create lobby:
 
 ```ts
 socket.emit(CLIENT_EVENTS.LOBBY_CREATE, {
@@ -70,21 +76,7 @@ socket.emit(CLIENT_EVENTS.LOBBY_CREATE, {
 });
 ```
 
-Expect:
-
-- `session:joined`
-- `lobby:state`
-
-Use `lobby:state` to render:
-
-- room code
-- player list
-- host badge
-- ready states
-
-### 3. Join lobby screen
-
-Send:
+Join lobby:
 
 ```ts
 socket.emit(CLIENT_EVENTS.LOBBY_JOIN, {
@@ -98,15 +90,9 @@ Expect:
 - `session:joined`
 - `lobby:state`
 
-If room code is bad, expect:
+### Lobby
 
-- `lobby:error`
-
-### 4. Lobby screen
-
-The lobby UI should mostly be driven by `lobby:state`.
-
-Important fields:
+Render from `lobby:state`:
 
 - `lobby.roomCode`
 - `lobby.phase`
@@ -114,7 +100,7 @@ Important fields:
 - `lobby.players`
 - `lobby.selectedStageId`
 
-Each player entry includes:
+Each player includes:
 
 - `id`
 - `displayName`
@@ -123,9 +109,7 @@ Each player entry includes:
 - `presence`
 - `selectedCharacterId`
 
-### 5. Ready button
-
-Send:
+Ready:
 
 ```ts
 socket.emit(CLIENT_EVENTS.LOBBY_READY, {
@@ -134,22 +118,7 @@ socket.emit(CLIENT_EVENTS.LOBBY_READY, {
 });
 ```
 
-To unready:
-
-```ts
-socket.emit(CLIENT_EVENTS.LOBBY_READY, {
-  roomCode,
-  isReady: false,
-});
-```
-
-Expect:
-
-- updated `lobby:state`
-
-### 6. Leave lobby button
-
-Send:
+Leave:
 
 ```ts
 socket.emit(CLIENT_EVENTS.LOBBY_LEAVE, {
@@ -157,17 +126,7 @@ socket.emit(CLIENT_EVENTS.LOBBY_LEAVE, {
 });
 ```
 
-Expect:
-
-- no special success event
-- the server updates the room for remaining players
-- your UI should return to the home screen after leaving
-
-### 7. Start match button
-
-Only the host should show this as enabled.
-
-Send:
+Start match:
 
 ```ts
 socket.emit(CLIENT_EVENTS.MATCH_START, {
@@ -175,52 +134,26 @@ socket.emit(CLIENT_EVENTS.MATCH_START, {
 });
 ```
 
-Expect:
+Notes:
 
-- `lobby:state` with `phase: "starting"`
-- `match:starting`
+- only host should start
+- current backend requires all non-host players to be ready
+- invalid actions return `lobby:error`
 
-If start is invalid, expect:
+### Countdown
 
-- `lobby:error`
-
-Common reasons:
-
-- not enough players
-- not all players are ready
-- caller is not host
-
-### 8. Countdown / match transition
-
-When `match:starting` arrives, use it to show the pre-match countdown.
-
-Payload includes:
+`match:starting` includes:
 
 - `roomCode`
 - `stageId`
 - `playerIds`
 - `countdownMs`
 
-After the countdown, expect:
+Use this to switch from lobby UI to match UI and show the countdown.
 
-- `lobby:state` with `phase: "in-match"`
-- `match:snapshot`
+### Match
 
-That first snapshot is your signal that the match is active.
-
-### 9. In-match screen
-
-Listen for:
-
-- `match:snapshot`
-
-Current server behavior:
-
-- sends an initial snapshot when the countdown finishes
-- keeps sending snapshots on a server tick
-- stores player inputs from `match:input`
-
-Send local input like:
+Send local input:
 
 ```ts
 socket.emit(CLIENT_EVENTS.MATCH_INPUT, {
@@ -236,30 +169,48 @@ socket.emit(CLIENT_EVENTS.MATCH_INPUT, {
 });
 ```
 
-For now, treat each `match:snapshot` as the source of truth for player positions and match phase.
+Render directly from `match:snapshot`.
 
-### 10. Match end
+Each player in the snapshot includes:
 
-Send:
+- `id`
+- `displayName`
+- `characterId`
+- `x`
+- `y`
+- `vx`
+- `vy`
+- `grounded`
+- `damage`
+- `stocks`
+- `isOutOfPlay`
+- `respawnTimerMs`
+- `respawnInvulnerabilityMs`
+- `respawnPlatformCenterX`
+- `respawnPlatformY`
+- `respawnPlatformWidth`
+- `facing`
+- `action`
 
-```ts
-socket.emit(CLIENT_EVENTS.MATCH_END, {
-  roomCode,
-  winnerPlayerId,
-  eliminatedPlayerIds,
-});
-```
+Use snapshot state for:
 
-Expect:
+- player positions
+- damage %
+- stocks
+- KO / out-of-play state
+- respawn countdown
+- respawn platform visuals
 
-- `lobby:state` with `phase: "finished"`
-- `match:ended`
+### Results
 
-Use `match:ended` to show results.
+`match:ended` includes:
 
-### 11. Return to lobby
+- `winnerPlayerId`
+- `eliminatedPlayerIds`
 
-From the results screen, send:
+Use it to render the results screen.
+
+Return to lobby:
 
 ```ts
 socket.emit(CLIENT_EVENTS.LOBBY_RETURN, {
@@ -270,45 +221,33 @@ socket.emit(CLIENT_EVENTS.LOBBY_RETURN, {
 Expect:
 
 - `lobby:state` with `phase: "waiting"`
-- all players reset to not ready
+- players still in the room
+- ready states reset
+- selected characters reset
+- selected stage reset
 
-## Events the UI should listen for
+## What to stop doing on the client
 
-### Server to client
+Once snapshots are wired, the client should not be the source of truth for:
 
-- `session:joined`
-- `lobby:state`
-- `lobby:error`
-- `match:starting`
-- `match:snapshot`
-- `match:ended`
-- `player:disconnected`
+- stock decrement
+- blast-zone KO checks
+- respawn timer
+- respawn invulnerability
+- respawn platform state
 
-### Client to server
+Client draft systems that should be disabled or removed after integration:
 
-- `lobby:create`
-- `lobby:join`
-- `lobby:leave`
-- `lobby:ready`
-- `lobby:return`
-- `match:start`
-- `match:input`
-- `match:end`
+- `StockSystem`
+- `RespawnSystem`
+- local blast-zone KO decisions
 
-## Suggested frontend state
+## Immediate UI task list
 
-The frontend should keep a small shared store with:
-
-- `socketStatus`
-- `playerId`
-- `currentLobby`
-- `currentMatchSnapshot`
-- `lastError`
-
-That is enough for menu flow, lobby flow, and the current match prototype.
-
-## Important rule
-
-Do not let the UI become the source of truth for lobby membership, ready state, or match phase.
-
-Always re-render from the latest server event.
+1. Keep one shared Socket.IO connection.
+2. Store `playerId` from `session:joined`.
+3. Render lobby from `lobby:state`.
+4. Switch into match scene from `match:starting`.
+5. Render HUD and players from `match:snapshot`.
+6. Render results from `match:ended`.
+7. Remove local stock / respawn ownership once backend snapshot rendering is working.

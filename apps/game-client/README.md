@@ -1,6 +1,8 @@
 # game-client
 
-Phaser browser client for menus, lobby flow, HUD, and match rendering.
+Phaser browser client scaffold.
+
+The backend is currently more complete than the client. Use the docs in `../../docs/` and the shared package in `../../packages/shared/` when wiring UI and networking.
 
 ## Stack
 
@@ -21,3 +23,10 @@ Vite will print the local URL (usually `http://localhost:5173`).
 
 - `npm run build`
 - `npm run preview`
+
+## Next integration work
+
+- connect to the Socket.IO backend
+- render lobby flow from `lobby:state`
+- handle `match:starting`, `match:snapshot`, and `match:ended`
+- send `match:input` during active matches

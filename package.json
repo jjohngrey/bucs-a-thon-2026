@@ -10,6 +10,7 @@
     "smoke:lobby": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:lobby",
     "smoke:match-start": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:match-start",
     "smoke:combat": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:combat",
+    "smoke:stocks": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:stocks",
     "smoke:match-end": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:match-end",
     "smoke:return-lobby": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:return-lobby"
   }

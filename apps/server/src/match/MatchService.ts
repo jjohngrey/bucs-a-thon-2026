@@ -13,12 +13,21 @@ import {
   DEFAULT_ATTACK_DAMAGE,
   DEFAULT_ATTACK_HEIGHT,
   DEFAULT_ATTACK_RANGE,
+  DEFAULT_BLAST_ZONE_MAX_X,
+  DEFAULT_BLAST_ZONE_MAX_Y,
+  DEFAULT_BLAST_ZONE_MIN_X,
+  DEFAULT_BLAST_ZONE_MIN_Y,
   DEFAULT_FLOOR_Y,
   DEFAULT_GRAVITY_PER_TICK,
   DEFAULT_HITSTUN_TICKS,
   DEFAULT_JUMP_VELOCITY,
+  DEFAULT_KO_FALL_SPEED_PER_TICK,
   DEFAULT_KNOCKBACK_X,
   DEFAULT_KNOCKBACK_Y,
+  DEFAULT_RESPAWN_DURATION_MS,
+  DEFAULT_RESPAWN_INVULNERABILITY_MS,
+  DEFAULT_RESPAWN_PLATFORM_WIDTH,
+  DEFAULT_RESPAWN_TOP_BUFFER,
   DEFAULT_STAGE_ID,
   DEFAULT_STOCK_COUNT,
   PLAYER_ACTIONS,
@@ -68,6 +77,7 @@ export type EndMatchResult = {
 
 const DEFAULT_COUNTDOWN_MS = 3000;
 const PLAYER_SPEED_PER_TICK = 6;
+const TICK_DURATION_MS = 1000 / SERVER_TICK_RATE;
 
 export class MatchService {
   private readonly pendingStartTimers = new Map<string, NodeJS.Timeout>();
@@ -360,6 +370,38 @@ function advanceSnapshot(
   hitstunTicksByPlayerId: Record<string, number>,
 ): MatchSnapshot {
   const nextPlayers: PlayerMatchState[] = previous.players.map((player) => {
+    const isEliminated = player.stocks <= 0;
+    if (isEliminated) {
+      return {
+        ...player,
+        isOutOfPlay: true,
+        grounded: false,
+        vx: 0,
+        vy: Math.max(player.vy, DEFAULT_KO_FALL_SPEED_PER_TICK),
+        y: player.y + Math.max(player.vy, DEFAULT_KO_FALL_SPEED_PER_TICK),
+        action: PLAYER_ACTIONS.KO,
+      };
+    }
+
+    if (player.isOutOfPlay) {
+      const nextRespawnTimerMs = Math.max(0, player.respawnTimerMs - TICK_DURATION_MS);
+      if (nextRespawnTimerMs > 0) {
+        const fallVelocity = Math.max(player.vy, DEFAULT_KO_FALL_SPEED_PER_TICK);
+        return {
+          ...player,
+          grounded: false,
+          vx: 0,
+          vy: fallVelocity,
+          y: player.y + fallVelocity,
+          respawnTimerMs: nextRespawnTimerMs,
+          action: PLAYER_ACTIONS.KO,
+        };
+      }
+
+      return createRespawnedPlayerState(player);
+    }
+
+    const nextInvulnerabilityMs = Math.max(0, player.respawnInvulnerabilityMs - TICK_DURATION_MS);
     const input = latestInputsByPlayerId[player.id];
     const inHitstun = (hitstunTicksByPlayerId[player.id] ?? 0) > 0;
     const horizontalVelocityFromInput =
@@ -404,6 +446,10 @@ function advanceSnapshot(
       vx: horizontalVelocity,
       vy: resolvedVy,
       grounded,
+      respawnInvulnerabilityMs: nextInvulnerabilityMs,
+      respawnPlatformCenterX: nextInvulnerabilityMs > 0 ? player.respawnPlatformCenterX : null,
+      respawnPlatformY: nextInvulnerabilityMs > 0 ? player.respawnPlatformY : null,
+      respawnPlatformWidth: nextInvulnerabilityMs > 0 ? player.respawnPlatformWidth : 0,
       facing,
       action,
     };
@@ -427,6 +473,9 @@ function advanceSnapshot(
       if (candidate.id === attacker.id) {
         return false;
       }
+      if (candidate.isOutOfPlay || candidate.stocks <= 0 || candidate.respawnInvulnerabilityMs > 0) {
+        return false;
+      }
 
       const dx = candidate.x - attacker.x;
       const withinFacing =
@@ -447,6 +496,28 @@ function advanceSnapshot(
     target.facing = attacker.facing === "right" ? "left" : "right";
     target.action = PLAYER_ACTIONS.HITSTUN;
     hitstunTicksByPlayerId[target.id] = DEFAULT_HITSTUN_TICKS;
+  }
+
+  for (const player of nextPlayers) {
+    if (player.isOutOfPlay || player.stocks <= 0) {
+      continue;
+    }
+
+    if (!isOutsideBlastZone(player)) {
+      continue;
+    }
+
+    player.stocks = Math.max(0, player.stocks - 1);
+    player.isOutOfPlay = true;
+    player.respawnTimerMs = player.stocks > 0 ? DEFAULT_RESPAWN_DURATION_MS : 0;
+    player.respawnInvulnerabilityMs = 0;
+    player.respawnPlatformCenterX = null;
+    player.respawnPlatformY = null;
+    player.respawnPlatformWidth = 0;
+    player.action = PLAYER_ACTIONS.KO;
+    player.vx = 0;
+    player.vy = Math.max(player.vy, DEFAULT_KO_FALL_SPEED_PER_TICK);
+    player.grounded = false;
   }
 
   return {
@@ -475,9 +546,46 @@ function createInitialPlayerState(
     grounded: true,
     damage: 0,
     stocks: DEFAULT_STOCK_COUNT,
+    isOutOfPlay: false,
+    respawnTimerMs: 0,
+    respawnInvulnerabilityMs: 0,
+    respawnPlatformCenterX: null,
+    respawnPlatformY: null,
+    respawnPlatformWidth: 0,
     facing: index % 2 === 0 ? "right" : "left",
     action: PLAYER_ACTIONS.IDLE,
   };
+}
+
+function createRespawnedPlayerState(player: PlayerMatchState): PlayerMatchState {
+  const respawnX = (DEFAULT_BLAST_ZONE_MIN_X + DEFAULT_BLAST_ZONE_MAX_X) / 2;
+  const respawnY = DEFAULT_BLAST_ZONE_MIN_Y + DEFAULT_RESPAWN_TOP_BUFFER;
+
+  return {
+    ...player,
+    x: respawnX,
+    y: respawnY,
+    vx: 0,
+    vy: 0,
+    grounded: false,
+    damage: 0,
+    isOutOfPlay: false,
+    respawnTimerMs: 0,
+    respawnInvulnerabilityMs: DEFAULT_RESPAWN_INVULNERABILITY_MS,
+    respawnPlatformCenterX: respawnX,
+    respawnPlatformY: respawnY,
+    respawnPlatformWidth: DEFAULT_RESPAWN_PLATFORM_WIDTH,
+    action: PLAYER_ACTIONS.RESPAWN,
+  };
+}
+
+function isOutsideBlastZone(player: PlayerMatchState): boolean {
+  return (
+    player.x < DEFAULT_BLAST_ZONE_MIN_X ||
+    player.x > DEFAULT_BLAST_ZONE_MAX_X ||
+    player.y < DEFAULT_BLAST_ZONE_MIN_Y ||
+    player.y > DEFAULT_BLAST_ZONE_MAX_Y
+  );
 }
 
 function failure(code: string, message: string): MatchServiceError {

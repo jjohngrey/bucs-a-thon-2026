@@ -1,6 +1,6 @@
 # Server Progress
 
-## Current Backend State
+## Current backend state
 
 The server currently supports:
 
@@ -11,6 +11,7 @@ The server currently supports:
 - `lobby:join`
 - `lobby:leave`
 - `lobby:ready`
+- `lobby:return`
 - `match:start`
 - in-memory match session creation
 - countdown-driven transition from `starting` to `in-match`
@@ -29,11 +30,17 @@ The server currently supports:
   - damage application
   - knockback impulse
   - hitstun state
+- authoritative stock and respawn lifecycle:
+  - blast-zone KO detection
+  - stock decrement on KO
+  - out-of-play KO fall
+  - respawn timer
+  - respawn invulnerability
+  - respawn-platform snapshot data
 - explicit `match:end` handling with `match:ended` broadcast
-- host-triggered return to lobby after results
 - cleanup of in-memory match sessions when a room breaks
 
-## Verified Commands
+## Verified commands
 
 Use these commands from the repo root:
 
@@ -41,9 +48,13 @@ Use these commands from the repo root:
 corepack pnpm check
 corepack pnpm smoke:lobby
 corepack pnpm smoke:match-start
+corepack pnpm smoke:combat
+corepack pnpm smoke:stocks
+corepack pnpm smoke:match-end
+corepack pnpm smoke:return-lobby
 ```
 
-## What The Smoke Tests Prove
+## What the smoke tests prove
 
 ### `smoke:lobby`
 
@@ -60,7 +71,21 @@ corepack pnpm smoke:match-start
 - after countdown, lobby phase moves to `in-match`
 - both clients receive an initial `match:snapshot`
 - active matches continue emitting snapshots with increasing server frames
-- server snapshots reflect real movement state changes including jump/gravity/floor landing
+- server snapshots reflect real movement state changes including jump, gravity, and floor landing
+
+### `smoke:combat`
+
+- a player can move into range and attack
+- the target takes damage
+- the target receives knockback
+- attacker and target action states reflect attack and hitstun
+
+### `smoke:stocks`
+
+- a player can cross the blast zone and lose a stock
+- the server marks the player as out of play
+- the server starts a respawn timer
+- the server respawns the player with invulnerability and respawn-platform data
 
 ### `smoke:match-end`
 
@@ -69,13 +94,6 @@ corepack pnpm smoke:match-start
 - lobby phase moves to `finished`
 - the active in-memory match loop is cleaned up
 
-### `smoke:combat`
-
-- a player can move into range and attack
-- the target takes damage
-- the target receives knockback
-- attacker/target action states reflect attack and hitstun
-
 ### `smoke:return-lobby`
 
 - after results, the host can reset the room
@@ -83,8 +101,8 @@ corepack pnpm smoke:match-start
 - ready states reset to `false`
 - selected characters and selected stage are cleared
 
-## Not Done Yet
+## Not done yet
 
-- combat simulation
-- stocks and respawn rules
+- automatic win detection from stocks
 - reconnect behavior for active matches
+- full character/stage-specific simulation

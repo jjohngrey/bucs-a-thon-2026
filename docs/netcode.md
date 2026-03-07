@@ -1,143 +1,148 @@
 # Netcode
 
-## Netcode Strategy
-
-Start with a server-authoritative model.
+The current backend uses a server-authoritative Socket.IO model.
 
 That means:
 
-- clients send input
-- server owns the official match state
-- server sends snapshots/events back to clients
+- clients send lobby actions and player inputs
+- server owns lobby and match state
+- server broadcasts authoritative state back to clients
 
-This is not full rollback netcode. It is simpler, easier to reason about, and much more realistic for an early build.
+This is a simple snapshot model, not rollback netcode.
 
-## Why Not Rollback First
+## Current tick model
 
-Rollback is powerful but expensive. It requires:
+- server tick rate: `30`
+- snapshots: emitted every server tick while match phase is `active`
+- input shape: boolean buttons for left, right, jump, attack, special
 
-- highly deterministic simulation
-- input buffering
-- re-simulation
-- prediction error handling
-- careful debugging tools
+## Current socket events
 
-If the team has never implemented rollback, it will likely consume the project.
-
-## Match Tick Model
-
-Suggested starting point:
-
-- server tick rate: `20-30` ticks per second
-- render frame rate: browser-native via Phaser
-- client input send rate: every tick or on input change
-- snapshot broadcast: every server tick or every 2 ticks
-
-The client should interpolate remote players between snapshots to hide jitter.
-
-## Data Flow
-
-### Lobby Phase
-
-1. client connects
-2. player creates or joins room
-3. server assigns room state
-4. players ready up
-5. host starts match
-
-### Match Phase
-
-1. each client sends input frames
-2. server advances simulation
-3. server emits authoritative snapshot
-4. clients reconcile visible state
-5. server emits end-of-match event when a winner is decided
-
-## Suggested Socket Events
-
-### Client to Server
+### Client to server
 
 - `lobby:create`
 - `lobby:join`
 - `lobby:leave`
 - `lobby:ready`
-- `match:select-character`
-- `match:select-stage`
+- `lobby:return`
 - `match:start`
 - `match:input`
-- `match:ack-snapshot`
+- `match:end`
 
-### Server to Client
+### Server to client
 
 - `session:joined`
 - `lobby:state`
 - `lobby:error`
 - `match:starting`
 - `match:snapshot`
-- `match:event`
 - `match:ended`
-- `player:disconnected`
 
-## Example Shared Protocol Shape
+## Match lifecycle
 
-```ts
-export type PlayerInputPayload = {
-  playerId: string;
-  inputFrame: number;
-  pressed: {
-    left: boolean;
-    right: boolean;
-    jump: boolean;
-    attack: boolean;
-    special: boolean;
-  };
-};
+1. Host sends `match:start`
+2. Server validates room, host, player count, and ready state
+3. Server creates an in-memory `MatchSession` with phase `countdown`
+4. Server emits `match:starting`
+5. Countdown finishes
+6. Server moves lobby phase to `in-match`
+7. Server moves match phase to `active`
+8. Server emits an initial `match:snapshot`
+9. Server continues emitting snapshots on a fixed interval
+10. Clients send `match:input` between snapshots
 
-export type MatchSnapshotPayload = {
-  serverFrame: number;
-  players: Array<{
-    id: string;
-    x: number;
-    y: number;
-    vx: number;
-    vy: number;
-    damage: number;
-    stocks: number;
-    facing: "left" | "right";
-    state: string;
-  }>;
-};
-```
+## Current match simulation
 
-## Reconciliation Rules
+Each active tick applies:
 
-- The local client keeps a small history of sent inputs.
-- When a snapshot arrives, the client corrects to authoritative state.
-- If prediction is used, the client replays local unconfirmed inputs after correction.
+- horizontal movement
+- jump
+- gravity
+- floor collision
+- facing updates
+- action-state updates
+- attack edge detection
+- melee hit detection
+- damage
+- knockback
+- hitstun countdown
+- blast-zone KO detection
+- stock decrement
+- out-of-play KO fall
+- respawn timer
+- respawn invulnerability countdown
 
-Keep this implementation minimal at first. Hard snaps are acceptable during the earliest prototype if they unblock the team.
+## Snapshot shape
 
-## 4-Player Constraint
+Each `match:snapshot` contains:
 
-Four players increase:
+- `roomCode`
+- `snapshot.serverFrame`
+- `snapshot.phase`
+- `snapshot.players`
 
-- collision combinations
-- bandwidth
-- state size
-- visual chaos
+Each player in the snapshot contains:
 
-Build for 2-player online first. Expand to 4 players after:
+- `id`
+- `displayName`
+- `characterId`
+- `x`
+- `y`
+- `vx`
+- `vy`
+- `grounded`
+- `damage`
+- `stocks`
+- `isOutOfPlay`
+- `respawnTimerMs`
+- `respawnInvulnerabilityMs`
+- `respawnPlatformCenterX`
+- `respawnPlatformY`
+- `respawnPlatformWidth`
+- `facing`
+- `action`
 
-- the protocol is stable
-- the simulation is fair
-- the client can render and reconcile cleanly
+## Important gameplay constants
 
-## Anti-Cheat Baseline
+Current shared defaults:
 
-For MVP:
+- default stage: `rooftop`
+- stocks: `3`
+- floor Y: `0`
+- jump velocity: `-14`
+- gravity per tick: `1.2`
+- attack damage: `12`
+- attack range: `72`
+- attack height: `48`
+- knockback X: `10`
+- knockback Y: `-8`
+- hitstun ticks: `8`
+- blast zone min/max: `(-200, -400)` to `(1400, 900)`
+- respawn duration ms: `2000`
+- respawn invulnerability ms: `1200`
+- respawn top buffer: `360`
+- respawn platform width: `170`
 
-- never trust client-reported damage or kills
-- never trust client-reported position as final truth
-- trust only player inputs and lobby actions
+## Smoke coverage
 
-That alone prevents the worst class of multiplayer exploits.
+The server smoke tests currently verify:
+
+- lobby create/join
+- match start and countdown
+- initial and recurring snapshots
+- movement and jump arc
+- combat hit, damage, knockback, and hitstun
+- blast-zone KO, stock loss, and respawn
+- match end
+- return to lobby
+
+## What the client should do
+
+The client should treat snapshots as truth.
+
+For the current prototype:
+
+- render directly from `match:snapshot`
+- do not trust client-local positions as final truth
+- do not decide match end locally
+- use `match:ended` to move into results UI
