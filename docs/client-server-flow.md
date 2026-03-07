@@ -112,7 +112,18 @@ The live gameplay loop is still the next step:
   - broadcasts `match:ended` with the winner summary
 - The next client-side step after that should be a results screen and return-to-lobby flow.
 
-## 10. Source of truth
+## 10. Return to lobby
+
+- After the results screen, the host can send `lobby:return`.
+- The server then:
+  - keeps the same room and players
+  - resets lobby phase to `waiting`
+  - resets ready states to `false`
+  - clears selected characters
+  - clears selected stage
+  - broadcasts a fresh `lobby:state`
+
+## 11. Source of truth
 
 - The client is responsible for UI, rendering, and player input.
 - The server is responsible for lobby membership, ready state, and match start validation.

@@ -2,6 +2,7 @@ import type {
   LobbyCreatePayload,
   LobbyJoinPayload,
   LobbyLeavePayload,
+  LobbyReturnPayload,
   LobbyReadyPayload,
   MatchEndPayload,
   MatchInputPayload,
@@ -78,6 +79,19 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
       return;
     }
 
+    io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
+      lobby: result.value.lobby,
+    });
+  });
+
+  socket.on(CLIENT_EVENTS.LOBBY_RETURN, (payload: LobbyReturnPayload) => {
+    const result = lobbyService.returnToLobby(socket.id, payload);
+    if (!result.ok) {
+      socket.emit(SERVER_EVENTS.LOBBY_ERROR, result.error);
+      return;
+    }
+
+    matchService.cleanupMatchForRoom(result.value.roomCode);
     io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
       lobby: result.value.lobby,
     });

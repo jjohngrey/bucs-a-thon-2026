@@ -4,6 +4,7 @@ import type {
   LobbyErrorPayload,
   LobbyJoinPayload,
   LobbyLeavePayload,
+  LobbyReturnPayload,
   LobbyReadyPayload,
   LobbyState,
   PlayerLobbyState,
@@ -147,6 +148,45 @@ export class LobbyService {
         playerId: session.playerId,
         roomCode,
         lobby,
+      },
+    };
+  }
+
+  returnToLobby(socketId: string, payload: LobbyReturnPayload): ServiceResult<CreateOrJoinLobbyResult> {
+    const session = this.lobbyStore.getSessionBySocketId(socketId);
+    if (!session) {
+      return failure("NOT_IN_LOBBY", "Socket is not associated with a lobby.");
+    }
+
+    const roomCode = normalizeRoomCode(payload.roomCode);
+    if (roomCode !== session.roomCode) {
+      return failure("ROOM_MISMATCH", "Socket is not associated with that room.");
+    }
+
+    const lobby = this.lobbyStore.getLobby(roomCode);
+    if (!lobby) {
+      return failure("LOBBY_NOT_FOUND", "Lobby does not exist.");
+    }
+
+    if (lobby.hostPlayerId !== session.playerId) {
+      return failure("HOST_ONLY", "Only the host can return the room to the lobby.");
+    }
+
+    if (lobby.phase !== "finished") {
+      return failure("INVALID_LOBBY_PHASE", "Lobby must be finished before returning.");
+    }
+
+    const resetLobby = this.lobbyStore.resetLobbyForNextMatch(roomCode);
+    if (!resetLobby) {
+      return failure("RETURN_FAILED", "Unable to reset the lobby.");
+    }
+
+    return {
+      ok: true,
+      value: {
+        playerId: session.playerId,
+        roomCode,
+        lobby: resetLobby,
       },
     };
   }

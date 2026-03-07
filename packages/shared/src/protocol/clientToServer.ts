@@ -16,6 +16,10 @@ export type LobbyReadyPayload = {
   isReady: boolean;
 };
 
+export type LobbyReturnPayload = {
+  roomCode: string;
+};
+
 export type MatchSelectCharacterPayload = {
   roomCode: string;
   characterId: string;

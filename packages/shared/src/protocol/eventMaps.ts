@@ -3,6 +3,7 @@ import type {
   LobbyCreatePayload,
   LobbyJoinPayload,
   LobbyLeavePayload,
+  LobbyReturnPayload,
   LobbyReadyPayload,
   MatchInputPayload,
   MatchSelectCharacterPayload,
@@ -25,6 +26,7 @@ export type ClientToServerEventMap = {
   [CLIENT_EVENTS.LOBBY_JOIN]: (payload: LobbyJoinPayload) => void;
   [CLIENT_EVENTS.LOBBY_LEAVE]: (payload: LobbyLeavePayload) => void;
   [CLIENT_EVENTS.LOBBY_READY]: (payload: LobbyReadyPayload) => void;
+  [CLIENT_EVENTS.LOBBY_RETURN]: (payload: LobbyReturnPayload) => void;
   [CLIENT_EVENTS.MATCH_SELECT_CHARACTER]: (payload: MatchSelectCharacterPayload) => void;
   [CLIENT_EVENTS.MATCH_SELECT_STAGE]: (payload: MatchSelectStagePayload) => void;
   [CLIENT_EVENTS.MATCH_START]: (payload: MatchStartPayload) => void;

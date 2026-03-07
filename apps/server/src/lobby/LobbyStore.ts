@@ -95,6 +95,24 @@ export class LobbyStore {
     return record.lobby;
   }
 
+  resetLobbyForNextMatch(roomCode: string): LobbyState | undefined {
+    const record = this.lobbies.get(roomCode);
+    if (!record) {
+      return undefined;
+    }
+
+    record.lobby.phase = "waiting";
+    record.lobby.selectedStageId = null;
+    record.lobby.players = record.lobby.players.map((player) => ({
+      ...player,
+      isReady: false,
+      selectedCharacterId: null,
+      presence: "connected",
+    }));
+
+    return record.lobby;
+  }
+
   removePlayerBySocketId(socketId: string): RemovePlayerResult {
     const session = this.sessionsBySocketId.get(socketId);
     if (!session) {

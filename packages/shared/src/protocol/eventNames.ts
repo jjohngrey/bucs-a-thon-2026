@@ -3,6 +3,7 @@ export const CLIENT_EVENTS = {
   LOBBY_JOIN: "lobby:join",
   LOBBY_LEAVE: "lobby:leave",
   LOBBY_READY: "lobby:ready",
+  LOBBY_RETURN: "lobby:return",
   MATCH_SELECT_CHARACTER: "match:select-character",
   MATCH_SELECT_STAGE: "match:select-stage",
   MATCH_START: "match:start",
