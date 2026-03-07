@@ -8,6 +8,7 @@
     "build:server": "corepack pnpm --filter @bucs/server build",
     "dev:server": "corepack pnpm --filter @bucs/server dev",
     "smoke:lobby": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:lobby",
-    "smoke:match-start": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:match-start"
+    "smoke:match-start": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:match-start",
+    "smoke:match-end": "corepack pnpm check && corepack pnpm --filter @bucs/server smoke:match-end"
   }
 }

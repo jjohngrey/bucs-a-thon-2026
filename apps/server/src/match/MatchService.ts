@@ -1,7 +1,9 @@
 import type {
   LobbyErrorPayload,
+  MatchEndPayload,
   MatchInputPayload,
   MatchSnapshot,
+  MatchSummary,
   MatchSession,
   MatchStartPayload,
   MatchStartingPayload,
@@ -48,6 +50,11 @@ export type CleanupMatchResult = {
 export type SubmitInputResult = {
   roomCode: string;
   playerId: string;
+};
+
+export type EndMatchResult = {
+  roomCode: string;
+  summary: MatchSummary;
 };
 
 const DEFAULT_COUNTDOWN_MS = 3000;
@@ -261,6 +268,46 @@ export class MatchService {
     }, Math.round(1000 / SERVER_TICK_RATE));
 
     this.activeMatchIntervals.set(normalizedRoomCode, interval);
+  }
+
+  endMatch(socketId: string, payload: MatchEndPayload): MatchServiceResult<EndMatchResult> {
+    const session = this.lobbyStore.getSessionBySocketId(socketId);
+    if (!session) {
+      return failure("NOT_IN_LOBBY", "Socket is not associated with a lobby.");
+    }
+
+    const roomCode = normalizeRoomCode(payload.roomCode);
+    if (roomCode !== session.roomCode) {
+      return failure("ROOM_MISMATCH", "Socket is not associated with that room.");
+    }
+
+    const lobby = this.lobbyStore.getLobby(roomCode);
+    const match = this.matchStore.getMatch(roomCode);
+    if (!lobby || !match) {
+      return failure("MATCH_NOT_FOUND", "Match does not exist.");
+    }
+
+    if (match.phase !== "active") {
+      return failure("MATCH_NOT_ACTIVE", "Match is not active.");
+    }
+
+    const updatedLobby = this.lobbyStore.updateLobbyPhase(roomCode, "finished");
+    if (!updatedLobby) {
+      return failure("MATCH_END_FAILED", "Unable to update lobby to finished.");
+    }
+
+    this.cleanupMatchForRoom(roomCode);
+
+    return {
+      ok: true,
+      value: {
+        roomCode,
+        summary: {
+          winnerPlayerId: payload.winnerPlayerId,
+          eliminatedPlayerIds: payload.eliminatedPlayerIds,
+        },
+      },
+    };
   }
 }
 

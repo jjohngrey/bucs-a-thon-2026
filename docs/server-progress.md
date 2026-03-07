@@ -17,6 +17,7 @@ The server currently supports:
 - initial `match:snapshot` emission when the match becomes active
 - recurring `match:snapshot` emission for active matches
 - in-memory `match:input` storage per player
+- explicit `match:end` handling with `match:ended` broadcast
 - cleanup of in-memory match sessions when a room breaks
 
 ## Verified Commands
@@ -47,9 +48,16 @@ corepack pnpm smoke:match-start
 - both clients receive an initial `match:snapshot`
 - active matches continue emitting snapshots with increasing server frames
 
+### `smoke:match-end`
+
+- an active match can be ended explicitly
+- both clients receive `match:ended`
+- lobby phase moves to `finished`
+- the active in-memory match loop is cleaned up
+
 ## Not Done Yet
 
 - live `match:input` handling
 - authoritative gameplay simulation beyond placeholder movement
-- match end / winner flow
 - reconnect behavior for active matches
+- return-to-lobby flow after match end
