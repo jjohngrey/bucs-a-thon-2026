@@ -97,6 +97,7 @@ async function main() {
             right: true,
             jump: false,
             attack: false,
+            kick: false,
             special: false,
           },
         });
@@ -123,6 +124,7 @@ async function main() {
               right: false,
               jump: false,
               attack: false,
+              kick: false,
               special: false,
             },
           });
