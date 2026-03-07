@@ -1,0 +1,25 @@
+{
+  "name": "@bucs/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "smoke:lobby": "tsx scripts/lobbySmokeTest.ts",
+    "smoke:match-start": "tsx scripts/matchStartSmokeTest.ts"
+  },
+  "dependencies": {
+    "@bucs/shared": "workspace:*",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "socket.io-client": "^4.8.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.9.3"
+  }
+}
