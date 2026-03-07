@@ -14,6 +14,8 @@ The server already owns:
 
 - lobby create / join / leave
 - ready state
+- character selection
+- stage selection
 - host start permissions
 - match countdown
 - live `match:snapshot` updates
@@ -61,6 +63,8 @@ Emit:
 - `lobby:leave`
 - `lobby:ready`
 - `lobby:return`
+- `match:select-character`
+- `match:select-stage`
 - `match:start`
 - `match:input`
 - `match:end`
@@ -121,6 +125,24 @@ socket.emit(CLIENT_EVENTS.LOBBY_READY, {
 });
 ```
 
+Select character:
+
+```ts
+socket.emit(CLIENT_EVENTS.MATCH_SELECT_CHARACTER, {
+  roomCode,
+  characterId: "guest-character",
+});
+```
+
+Select stage:
+
+```ts
+socket.emit(CLIENT_EVENTS.MATCH_SELECT_STAGE, {
+  roomCode,
+  stageId: "rooftop",
+});
+```
+
 Leave:
 
 ```ts
@@ -139,6 +161,8 @@ socket.emit(CLIENT_EVENTS.MATCH_START, {
 
 Notes:
 
+- each player selects their own character
+- only the host should select the stage
 - only host should start
 - current backend requires all non-host players to be ready
 - invalid actions return `lobby:error`

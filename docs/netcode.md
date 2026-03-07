@@ -25,6 +25,8 @@ This is a simple snapshot model, not rollback netcode.
 - `lobby:leave`
 - `lobby:ready`
 - `lobby:return`
+- `match:select-character`
+- `match:select-stage`
 - `match:start`
 - `match:input`
 - `match:end`

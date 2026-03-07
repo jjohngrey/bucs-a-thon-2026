@@ -7,8 +7,11 @@ import type {
   LobbyReturnPayload,
   LobbyReadyPayload,
   LobbyState,
+  MatchSelectCharacterPayload,
+  MatchSelectStagePayload,
   PlayerLobbyState,
 } from "@bucs/shared";
+import { STAGES } from "@bucs/shared";
 import { LobbyStore } from "./LobbyStore.js";
 import { generateRoomCode, normalizeRoomCode } from "./RoomCode.js";
 
@@ -148,6 +151,95 @@ export class LobbyService {
         playerId: session.playerId,
         roomCode,
         lobby,
+      },
+    };
+  }
+
+  selectCharacter(
+    socketId: string,
+    payload: MatchSelectCharacterPayload,
+  ): ServiceResult<CreateOrJoinLobbyResult> {
+    const session = this.lobbyStore.getSessionBySocketId(socketId);
+    if (!session) {
+      return failure("NOT_IN_LOBBY", "Socket is not associated with a lobby.");
+    }
+
+    const roomCode = normalizeRoomCode(payload.roomCode);
+    if (roomCode !== session.roomCode) {
+      return failure("ROOM_MISMATCH", "Socket is not associated with that room.");
+    }
+
+    const lobby = this.lobbyStore.getLobby(roomCode);
+    if (!lobby) {
+      return failure("LOBBY_NOT_FOUND", "Lobby does not exist.");
+    }
+
+    if (lobby.phase !== "waiting" && lobby.phase !== "character-select") {
+      return failure("INVALID_LOBBY_PHASE", "Character selection is only allowed before match start.");
+    }
+
+    const characterId = payload.characterId.trim();
+    if (!characterId) {
+      return failure("INVALID_CHARACTER", "Character id is required.");
+    }
+
+    const updatedLobby = this.lobbyStore.setPlayerCharacter(roomCode, session.playerId, characterId);
+    if (!updatedLobby) {
+      return failure("CHARACTER_SELECT_FAILED", "Unable to update selected character.");
+    }
+
+    return {
+      ok: true,
+      value: {
+        playerId: session.playerId,
+        roomCode,
+        lobby: updatedLobby,
+      },
+    };
+  }
+
+  selectStage(
+    socketId: string,
+    payload: MatchSelectStagePayload,
+  ): ServiceResult<CreateOrJoinLobbyResult> {
+    const session = this.lobbyStore.getSessionBySocketId(socketId);
+    if (!session) {
+      return failure("NOT_IN_LOBBY", "Socket is not associated with a lobby.");
+    }
+
+    const roomCode = normalizeRoomCode(payload.roomCode);
+    if (roomCode !== session.roomCode) {
+      return failure("ROOM_MISMATCH", "Socket is not associated with that room.");
+    }
+
+    const lobby = this.lobbyStore.getLobby(roomCode);
+    if (!lobby) {
+      return failure("LOBBY_NOT_FOUND", "Lobby does not exist.");
+    }
+
+    if (lobby.hostPlayerId !== session.playerId) {
+      return failure("HOST_ONLY", "Only the host can select the stage.");
+    }
+
+    if (lobby.phase !== "waiting" && lobby.phase !== "character-select") {
+      return failure("INVALID_LOBBY_PHASE", "Stage selection is only allowed before match start.");
+    }
+
+    if (!STAGES[payload.stageId]) {
+      return failure("INVALID_STAGE", "Stage does not exist.");
+    }
+
+    const updatedLobby = this.lobbyStore.setStage(roomCode, payload.stageId);
+    if (!updatedLobby) {
+      return failure("STAGE_SELECT_FAILED", "Unable to update selected stage.");
+    }
+
+    return {
+      ok: true,
+      value: {
+        playerId: session.playerId,
+        roomCode,
+        lobby: updatedLobby,
       },
     };
   }

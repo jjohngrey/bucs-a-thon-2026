@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   CLIENT_EVENTS,
   SERVER_EVENTS,
+  DEFAULT_STAGE,
   type LobbyStatePayload,
   type SessionJoinedPayload,
 } from "@bucs/shared";
@@ -93,6 +94,35 @@ async function main() {
         .sort();
       assert.deepEqual(playerNames, ["Guest", "Host"]);
 
+      hostSocket.emit(CLIENT_EVENTS.MATCH_SELECT_STAGE, {
+        roomCode: createdLobby.lobby.roomCode,
+        stageId: DEFAULT_STAGE.id,
+      });
+
+      guestSocket.emit(CLIENT_EVENTS.MATCH_SELECT_CHARACTER, {
+        roomCode: createdLobby.lobby.roomCode,
+        characterId: "guest-character",
+      });
+
+      const [stageLobby, characterLobby] = await Promise.all([
+        waitForLobby(host, (payload) => payload.lobby.selectedStageId === DEFAULT_STAGE.id),
+        waitForLobby(
+          host,
+          (payload) =>
+            payload.lobby.players.some(
+              (player) =>
+                player.displayName === "Guest" &&
+                player.selectedCharacterId === "guest-character",
+            ),
+        ),
+      ]);
+
+      assert.equal(stageLobby.lobby.selectedStageId, DEFAULT_STAGE.id);
+      assert.equal(
+        characterLobby.lobby.players.find((player) => player.displayName === "Guest")?.selectedCharacterId,
+        "guest-character",
+      );
+
       console.log("Lobby smoke test passed.");
       console.log(`Room code: ${hostLobby.lobby.roomCode}`);
     } finally {
@@ -160,10 +190,17 @@ async function waitForSessionJoined(socket: Socket, state: TestClientState) {
 }
 
 async function waitForLobbyWithPlayers(state: TestClientState, playerCount: number) {
+  return waitForLobby(state, (payload) => payload.lobby.players.length === playerCount);
+}
+
+async function waitForLobby(
+  state: TestClientState,
+  predicate: (payload: LobbyStatePayload) => boolean,
+) {
   const deadline = Date.now() + EVENT_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
-    const match = state.lobbies.findLast((payload) => payload.lobby.players.length === playerCount);
+    const match = state.lobbies.findLast(predicate);
     if (match) {
       return match;
     }
@@ -171,7 +208,7 @@ async function waitForLobbyWithPlayers(state: TestClientState, playerCount: numb
     await delay(25);
   }
 
-  throw new Error(`Timed out waiting for lobby with ${playerCount} players.`);
+  throw new Error("Timed out waiting for matching lobby state.");
 }
 
 async function onceWithTimeout(socket: Socket, eventName: string) {

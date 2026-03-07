@@ -55,6 +55,7 @@ Implemented:
 
 - health endpoint
 - lobby create, join, leave, ready, and return
+- lobby character and stage selection
 - match start, countdown, activation, and end
 - recurring authoritative snapshots
 - server-side input handling

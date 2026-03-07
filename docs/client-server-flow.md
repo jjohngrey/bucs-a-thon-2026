@@ -56,6 +56,14 @@ Important detail:
 
 - the current server requires all non-host players to be ready before `match:start`
 
+## 5a. Character and stage selection
+
+- A player can send `match:select-character` with their `characterId`.
+- The host can send `match:select-stage` with a `stageId`.
+- The server updates `selectedCharacterId` on that player and `selectedStageId` on the lobby.
+- The server broadcasts a fresh `lobby:state`.
+- The client should render selection UI from that updated lobby state.
+
 ## 6. Host starts the match
 
 - Once enough players are present and everyone is ready, the host clicks start.

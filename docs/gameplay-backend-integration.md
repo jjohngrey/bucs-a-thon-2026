@@ -24,6 +24,11 @@ The backend already simulates:
 - stage floor, blast zone, spawn points, and respawn settings from shared content
 - immediate match termination if a player disconnects mid-match
 
+The lobby path already supports:
+
+- `selectedCharacterId` per player
+- `selectedStageId` on the room
+
 That means the client gameplay code should not become a second source of truth for match results.
 
 ## What the gameplay person should do on the client

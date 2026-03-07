@@ -6,6 +6,8 @@ import type {
   LobbyReadyPayload,
   MatchEndPayload,
   MatchInputPayload,
+  MatchSelectCharacterPayload,
+  MatchSelectStagePayload,
   MatchStartPayload,
 } from "@bucs/shared";
 import { CLIENT_EVENTS, SERVER_EVENTS } from "@bucs/shared";
@@ -87,6 +89,30 @@ export function registerSocketHandlers(io: SocketServer, socket: ClientSocket) {
 
   socket.on(CLIENT_EVENTS.LOBBY_READY, (payload: LobbyReadyPayload) => {
     const result = lobbyService.setReady(socket.id, payload);
+    if (!result.ok) {
+      socket.emit(SERVER_EVENTS.LOBBY_ERROR, result.error);
+      return;
+    }
+
+    io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
+      lobby: result.value.lobby,
+    });
+  });
+
+  socket.on(CLIENT_EVENTS.MATCH_SELECT_CHARACTER, (payload: MatchSelectCharacterPayload) => {
+    const result = lobbyService.selectCharacter(socket.id, payload);
+    if (!result.ok) {
+      socket.emit(SERVER_EVENTS.LOBBY_ERROR, result.error);
+      return;
+    }
+
+    io.to(result.value.roomCode).emit(SERVER_EVENTS.LOBBY_STATE, {
+      lobby: result.value.lobby,
+    });
+  });
+
+  socket.on(CLIENT_EVENTS.MATCH_SELECT_STAGE, (payload: MatchSelectStagePayload) => {
+    const result = lobbyService.selectStage(socket.id, payload);
     if (!result.ok) {
       socket.emit(SERVER_EVENTS.LOBBY_ERROR, result.error);
       return;

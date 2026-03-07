@@ -12,6 +12,8 @@ The server currently supports:
 - `lobby:leave`
 - `lobby:ready`
 - `lobby:return`
+- `match:select-character`
+- `match:select-stage`
 - `match:start`
 - in-memory match session creation
 - countdown-driven transition from `starting` to `in-match`
@@ -50,6 +52,10 @@ The server currently supports:
   - initial spawn points
   - respawn point calculation
   - respawn timing and platform width
+- lobby-side selection flow:
+  - each player can set `selectedCharacterId`
+  - host can set `selectedStageId`
+  - both changes broadcast through `lobby:state`
 
 ## Verified commands
 
@@ -74,6 +80,8 @@ corepack pnpm smoke:return-lobby
 - one client can create a lobby
 - another client can join it
 - both clients receive `lobby:state`
+- host can set the stage
+- a player can set their selected character
 
 ### `smoke:match-start`
 
