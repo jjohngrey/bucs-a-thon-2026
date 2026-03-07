@@ -1,8 +1,10 @@
 import "./style.css";
 import {
   CLIENT_EVENTS,
+  DEFAULT_STAGE,
   SERVER_EVENTS,
   SERVER_TICK_RATE,
+  STAGES,
   type LobbyState,
   type LobbyStatePayload,
   type MatchEndedPayload,
@@ -12,6 +14,7 @@ import {
   type MatchStartingPayload,
   type PlayerAction,
   type SessionJoinedPayload,
+  type StageDefinition,
 } from "@bucs/shared";
 import { io, type Socket } from "socket.io-client";
 import { AudioSystem } from "./game/audio/AudioSystem";
@@ -42,11 +45,9 @@ const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostn
 const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
 const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
-const WORLD_MIN_X = -200;
-const WORLD_MAX_X = 1400;
 const ARENA_WIDTH = 840;
 const ARENA_HEIGHT = 360;
-const GROUND_Y_PX = 280;
+const GROUND_Y_PX = 304;
 const LOCAL_SPEED_PER_TICK = 6;
 const LOCAL_JUMP_VELOCITY = -14;
 const LOCAL_GRAVITY_PER_TICK = 1.2;
@@ -1229,7 +1230,7 @@ function renderMatchScreen(): string {
       <main class="match-screen" aria-label="Match view">
         <section class="match-stage match-stage--loading">
           <div class="arena">
-            <div class="arena-floor"></div>
+            ${renderStageShell()}
             ${fallingPlatformMarkup}
             ${placeholderPlayers}
           </div>
@@ -1314,7 +1315,7 @@ function renderMatchScreen(): string {
     <main class="match-screen" aria-label="Match view">
       <section class="match-stage">
         <div class="arena">
-          <div class="arena-floor"></div>
+          ${renderStageShell()}
           ${fallingPlatformMarkup}
           ${respawnPlatformsMarkup}
           ${playersMarkup}
@@ -1351,6 +1352,22 @@ function renderFallingPlatform(snapshot: MatchSnapshot | null): string {
       aria-hidden="true"
     ></div>
   `;
+}
+
+function renderStageShell(): string {
+  const stage = getActiveStage();
+  const floorTop = worldToScreenY(stage.floorY);
+
+  return `
+    <div class="arena-boundary arena-boundary--left" aria-hidden="true"></div>
+    <div class="arena-boundary arena-boundary--right" aria-hidden="true"></div>
+    <div class="arena-floor" style="top:${floorTop.toFixed(1)}px;" aria-hidden="true"></div>
+  `;
+}
+
+function getActiveStage(): StageDefinition {
+  const stageId = state.matchStarting?.stageId ?? state.lobby?.selectedStageId ?? DEFAULT_STAGE.id;
+  return STAGES[stageId] ?? DEFAULT_STAGE;
 }
 
 function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingPlatformVisualState {
@@ -1615,12 +1632,15 @@ function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): strin
 }
 
 function worldToScreenX(x: number): number {
-  const normalized = clamp((x - WORLD_MIN_X) / (WORLD_MAX_X - WORLD_MIN_X), 0, 1);
+  const stage = getActiveStage();
+  const worldWidth = Math.max(1, stage.blastZone.maxX - stage.blastZone.minX);
+  const normalized = clamp((x - stage.blastZone.minX) / worldWidth, 0, 1);
   return normalized * ARENA_WIDTH;
 }
 
 function worldToScreenY(y: number): number {
-  const raw = GROUND_Y_PX + y;
+  const stage = getActiveStage();
+  const raw = GROUND_Y_PX + (y - stage.floorY);
   return clamp(raw, 0, ARENA_HEIGHT - 4);
 }
 
