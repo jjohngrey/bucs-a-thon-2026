@@ -22,7 +22,13 @@ type AppState = {
 const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
 const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
-const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
+const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"] as const;
+const CHARACTER_DISPLAY: Record<(typeof CHARACTER_CHOICES)[number], { name: string; stand: string }> = {
+  "fighter-1": { name: "Jay", stand: "/assets/jay/jay_stand.png" },
+  "fighter-2": { name: "Fahim", stand: "/assets/fahim/fahim_stand.png" },
+  "fighter-3": { name: "Ryan", stand: "/assets/ryan/ryan_stand.png" },
+  "fighter-4": { name: "Jia", stand: "/assets/jia/jia_stand.png" },
+};
 const DEFAULT_MATCH_CHARACTER_LABEL = "temp-fighter";
 
 function resolveServerUrl(): string {
@@ -44,6 +50,19 @@ const app = appRoot;
 
 let socket: Socket | null = null;
 let listenersAttached = false;
+
+const LOBBY_MUSIC_SCREENS: Screen[] = ["home", "character-select", "lobby"];
+const lobbyMusic = new Audio("/audio/music/lobby.mp3");
+lobbyMusic.loop = true;
+
+function updateLobbyMusic(): void {
+  const shouldPlay = LOBBY_MUSIC_SCREENS.includes(state.screen);
+  if (shouldPlay && lobbyMusic.paused) {
+    lobbyMusic.play().catch(() => {});
+  } else if (!shouldPlay && !lobbyMusic.paused) {
+    lobbyMusic.pause();
+  }
+}
 
 const state: AppState = {
   screen: "home",
@@ -350,7 +369,25 @@ function disconnectSocket(): void {
 }
 
 function render(): void {
+  const active = document.activeElement;
+  const focusedField =
+    active instanceof HTMLInputElement ? active.dataset.field : null;
+  const selectionStart = active instanceof HTMLInputElement ? active.selectionStart : null;
+  const selectionEnd = active instanceof HTMLInputElement ? active.selectionEnd : null;
+
+  document.body.classList.toggle("home-active", state.screen === "home");
+  document.body.classList.toggle("character-select-active", state.screen === "character-select");
+  document.body.classList.toggle("lobby-active", state.screen === "lobby");
+  updateLobbyMusic();
   app.innerHTML = renderScreen();
+
+  if (focusedField != null && selectionStart != null && selectionEnd != null) {
+    const input = app.querySelector<HTMLInputElement>(`input[data-field="${focusedField}"]`);
+    if (input) {
+      input.focus();
+      input.setSelectionRange(selectionStart, selectionEnd);
+    }
+  }
 }
 
 function renderScreen(): string {
@@ -370,26 +407,31 @@ function renderHomeScreen(): string {
   const canJoin = normalizeRoomCode(state.joinCodeInput).length === ROOM_CODE_LENGTH;
 
   return `
-    <main class="shell">
-      <section class="card">
-        <h1>BUCS Fighter MVP</h1>
-        <p>Create or join from this one screen.</p>
-
-        <label class="field">
-          Display Name
-          <input data-field="display-name" value="${escapeHtml(state.displayNameInput)}" maxlength="24" placeholder="Player" />
-        </label>
-
-        <div class="home-actions">
-          <button type="button" data-action="create-lobby" ${state.isConnecting ? "disabled" : ""}>Create Lobby</button>
+    <main class="shell home-screen">
+      <section class="card home-card">
+        <div class="home-title">
+          <img src="/assets/home/title.png" alt="BUCS Fighter" class="home-title-img" />
         </div>
 
-        <div class="inline-join">
-          <label class="field field--inline">
+        <div class="home-form">
+          <label class="field">
+            Display Name
+            <input data-field="display-name" value="${escapeHtml(state.displayNameInput)}" maxlength="24" placeholder="Player" />
+          </label>
+
+          <label class="field">
             Join Code
             <input data-field="join-code" value="${escapeHtml(normalizeRoomCode(state.joinCodeInput))}" maxlength="${ROOM_CODE_LENGTH}" placeholder="ABC123" />
           </label>
-          <button type="button" data-action="join-lobby" ${canJoin && !state.isConnecting ? "" : "disabled"}>Join Lobby</button>
+
+          <div class="home-actions">
+            <button type="button" class="home-btn home-btn--create" data-action="create-lobby" ${state.isConnecting ? "disabled" : ""}>
+              <img src="/assets/home/create_lobby.png" alt="Create Lobby" />
+            </button>
+            <button type="button" class="home-btn home-btn--join" data-action="join-lobby" ${canJoin && !state.isConnecting ? "" : "disabled"}>
+              <img src="/assets/home/join_lobby.png" alt="Join Lobby" />
+            </button>
+          </div>
         </div>
 
         ${renderMessages()}
@@ -399,8 +441,9 @@ function renderHomeScreen(): string {
 }
 
 function renderCharacterSelectScreen(): string {
-  const cards = CHARACTER_CHOICES.map((characterId, index) => {
+  const cards = CHARACTER_CHOICES.map((characterId) => {
     const isSelected = state.selectedCharacterId === characterId;
+    const { name, stand } = CHARACTER_DISPLAY[characterId];
     return `
       <button
         type="button"
@@ -408,20 +451,21 @@ function renderCharacterSelectScreen(): string {
         data-action="select-character"
         data-character-id="${characterId}"
       >
-        Character ${index + 1}
+        <img src="${stand}" alt="${escapeHtml(name)}" class="character-card-img" />
+        <span class="character-card-name">${escapeHtml(name)}</span>
       </button>
     `;
   }).join("");
 
   return `
-    <main class="shell">
-      <section class="card">
-        <h1>Character Select</h1>
-        <p>Pick any placeholder. Match currently starts everyone as ${DEFAULT_MATCH_CHARACTER_LABEL}.</p>
+    <main class="shell character-select-screen">
+      <section class="card character-select-card">
+        <h1 class="character-select-title">Character Select</h1>
+        <p class="character-select-subtitle">Choose your fighter.</p>
         <div class="character-grid">${cards}</div>
-        <div class="row">
-          <button type="button" data-action="character-back">Back</button>
-          <button type="button" data-action="character-ready" ${state.selectedCharacterId ? "" : "disabled"}>Ready</button>
+        <div class="character-select-actions">
+          <button type="button" class="character-select-btn character-select-btn--back" data-action="character-back">Back</button>
+          <button type="button" class="character-select-btn character-select-btn--ready" data-action="character-ready" ${state.selectedCharacterId ? "" : "disabled"}>Ready</button>
         </div>
         ${renderMessages()}
       </section>
@@ -439,29 +483,46 @@ function renderLobbyScreen(): string {
       lobby.players.every((player) => player.id === lobby.hostPlayerId || player.isReady),
   );
 
-  const playerLines = players
-    .map((player) => {
-      const role = player.id === lobby?.hostPlayerId ? "Host" : "Player";
-      const ready = player.isReady ? "Ready" : "Not Ready";
-      const isMe = player.id === state.playerId ? " (You)" : "";
-      return `<li>${escapeHtml(player.displayName)}${isMe} - ${role} - ${ready}</li>`;
-    })
-    .join("");
+  const playerItems = players.length
+    ?       players.map((player) => {
+        const role = player.id === lobby?.hostPlayerId ? "Host" : "Player";
+        const ready = player.isReady ? "Ready" : "Not ready";
+        const isMe = player.id === state.playerId;
+        const characterId = isMe
+          ? (state.selectedCharacterId ?? player.selectedCharacterId)
+          : player.selectedCharacterId;
+        const playerChar =
+          characterId && characterId in CHARACTER_DISPLAY
+            ? CHARACTER_DISPLAY[characterId as keyof typeof CHARACTER_DISPLAY]
+            : null;
+        const avatarImg = playerChar
+          ? `<span class="lobby-player-avatar-crop"><img src="${playerChar.stand}" alt="" class="lobby-avatar lobby-avatar--player" /></span>`
+          : "";
+        return `
+          <li class="lobby-player ${isMe ? "lobby-player--you" : ""}">
+            ${avatarImg}
+            <span class="lobby-player-name">${escapeHtml(player.displayName)}${isMe ? " (You)" : ""}</span>
+            <span class="lobby-player-role">${role}</span>
+            <span class="lobby-player-ready ${player.isReady ? "lobby-player-ready--yes" : ""}">${ready}</span>
+          </li>`;
+      }).join("")
+    : "<li class=\"lobby-player lobby-player--empty\">Waiting for players...</li>";
 
   return `
-    <main class="shell">
-      <section class="card">
-        <h1>Lobby</h1>
-        <p>Room Code: <strong>${escapeHtml(state.roomCode)}</strong></p>
-        <p>Local pick: <strong>${escapeHtml(state.selectedCharacterId ?? "none")}</strong></p>
-        <p>Gameplay start character: <strong>${DEFAULT_MATCH_CHARACTER_LABEL}</strong></p>
+    <main class="shell lobby-screen">
+      <section class="card lobby-card">
+        <h1 class="lobby-title">Lobby</h1>
+        <div class="lobby-room-code">
+          <span class="lobby-room-code-label">Room Code</span>
+          <span class="lobby-room-code-value">${escapeHtml(state.roomCode)}</span>
+        </div>
 
-        <ul class="player-list">${playerLines || "<li>Waiting for players...</li>"}</ul>
+        <ul class="lobby-player-list">${playerItems}</ul>
 
-        <div class="row">
-          <button type="button" data-action="change-character">Change Character (Unready)</button>
-          <button type="button" data-action="leave-lobby">Back (Disconnect)</button>
-          <button type="button" data-action="start-match" ${isHost && everyoneReady ? "" : "disabled"}>Start Match</button>
+        <div class="lobby-actions">
+          <button type="button" class="lobby-btn lobby-btn--change" data-action="change-character">Change Character</button>
+          <button type="button" class="lobby-btn lobby-btn--back" data-action="leave-lobby">Back</button>
+          <button type="button" class="lobby-btn lobby-btn--start" data-action="start-match" ${isHost && everyoneReady ? "" : "disabled"}>Start Match</button>
         </div>
 
         ${renderMessages()}
@@ -471,17 +532,8 @@ function renderLobbyScreen(): string {
 }
 
 function renderMessages(): string {
-  const lines: string[] = [];
-
-  if (state.statusMessage) {
-    lines.push(`<p class="note note--status">${escapeHtml(state.statusMessage)}</p>`);
-  }
-
-  if (state.errorMessage) {
-    lines.push(`<p class="note note--error">${escapeHtml(state.errorMessage)}</p>`);
-  }
-
-  return lines.join("");
+  if (!state.errorMessage) return "";
+  return `<p class="note note--error">${escapeHtml(state.errorMessage)}</p>`;
 }
 
 function normalizeRoomCode(input: string): string {
