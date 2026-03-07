@@ -12,11 +12,10 @@ import {
 } from "@bucs/shared";
 import { io, type Socket } from "socket.io-client";
 
-const TEST_PORT = 3102;
+const TEST_PORT = 3105;
 const SERVER_URL = `http://127.0.0.1:${TEST_PORT}`;
 const SERVER_START_TIMEOUT_MS = 5_000;
-const EVENT_TIMEOUT_MS = 5_000;
-const FLOOR_Y = 0;
+const EVENT_TIMEOUT_MS = 6_000;
 
 type TestClientState = {
   session?: SessionJoinedPayload;
@@ -28,11 +27,7 @@ type TestClientState = {
 async function main() {
   const server = spawn("node", ["dist/index.js"], {
     cwd: new URL("..", import.meta.url),
-    env: {
-      ...process.env,
-      PORT: String(TEST_PORT),
-      HOST: "127.0.0.1",
-    },
+    env: { ...process.env, PORT: String(TEST_PORT), HOST: "127.0.0.1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -49,7 +44,6 @@ async function main() {
 
     const host = createClientState();
     const guest = createClientState();
-
     const hostSocket = io(SERVER_URL, { transports: ["websocket"], forceNew: true });
     const guestSocket = io(SERVER_URL, { transports: ["websocket"], forceNew: true });
 
@@ -81,65 +75,22 @@ async function main() {
         isReady: true,
       });
 
+      await Promise.all([waitForReadyCount(host, 1), waitForReadyCount(guest, 1)]);
+
+      hostSocket.emit(CLIENT_EVENTS.MATCH_START, { roomCode: createdLobby.lobby.roomCode });
+
       await Promise.all([
-        waitForReadyCount(host, 1),
-        waitForReadyCount(guest, 1),
-      ]);
-
-      hostSocket.emit(CLIENT_EVENTS.MATCH_START, {
-        roomCode: createdLobby.lobby.roomCode,
-      });
-
-      const [hostStartingLobby, guestStartingLobby, hostMatch, guestMatch] = await Promise.all([
-        waitForLobbyPhase(host, "starting"),
-        waitForLobbyPhase(guest, "starting"),
         waitForMatchStarting(hostSocket, host),
         waitForMatchStarting(guestSocket, guest),
-      ]);
-
-      assert.equal(hostStartingLobby.lobby.roomCode, createdLobby.lobby.roomCode);
-      assert.equal(guestStartingLobby.lobby.roomCode, createdLobby.lobby.roomCode);
-      assert.equal(hostStartingLobby.lobby.phase, "starting");
-      assert.equal(guestStartingLobby.lobby.phase, "starting");
-      assert.equal(hostMatch.roomCode, createdLobby.lobby.roomCode);
-      assert.equal(guestMatch.roomCode, createdLobby.lobby.roomCode);
-      assert.equal(hostMatch.stageId, guestMatch.stageId);
-      assert.equal(hostMatch.countdownMs, 3000);
-      assert.equal(hostMatch.playerIds.length, 2);
-      assert.deepEqual([...hostMatch.playerIds].sort(), [...guestMatch.playerIds].sort());
-
-      const [hostInMatchLobby, guestInMatchLobby] = await Promise.all([
         waitForLobbyPhase(host, "in-match"),
         waitForLobbyPhase(guest, "in-match"),
-      ]);
-
-      const [hostInitialSnapshots, guestInitialSnapshots] = await Promise.all([
         waitForSnapshotCount(hostSocket, host, 1),
         waitForSnapshotCount(guestSocket, guest, 1),
       ]);
-      const hostSnapshot = hostInitialSnapshots.at(-1);
-      const guestSnapshot = guestInitialSnapshots.at(-1);
-
-      assert.equal(hostInMatchLobby.lobby.roomCode, createdLobby.lobby.roomCode);
-      assert.equal(guestInMatchLobby.lobby.roomCode, createdLobby.lobby.roomCode);
-      assert.equal(hostInMatchLobby.lobby.phase, "in-match");
-      assert.equal(guestInMatchLobby.lobby.phase, "in-match");
-      assert.ok(hostSnapshot);
-      assert.ok(guestSnapshot);
-      assert.equal(hostSnapshot.roomCode, createdLobby.lobby.roomCode);
-      assert.equal(guestSnapshot.roomCode, createdLobby.lobby.roomCode);
-      assert.equal(hostSnapshot.snapshot.phase, "active");
-      assert.equal(guestSnapshot.snapshot.phase, "active");
-      assert.equal(hostSnapshot.snapshot.serverFrame, 0);
-      assert.equal(hostSnapshot.snapshot.players.length, 2);
-      assert.equal(guestSnapshot.snapshot.players.length, 2);
-      assert.equal(hostSnapshot.snapshot.players[0]?.damage, 0);
-      assert.equal(hostSnapshot.snapshot.players[0]?.stocks, 3);
-      assert.equal(hostSnapshot.snapshot.players[0]?.grounded, true);
 
       hostSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
         roomCode: createdLobby.lobby.roomCode,
-        inputFrame: hostSnapshot.snapshot.serverFrame,
+        inputFrame: 0,
         pressed: {
           left: false,
           right: true,
@@ -149,53 +100,43 @@ async function main() {
         },
       });
 
-      const [hostSnapshots, guestSnapshots] = await Promise.all([
-        waitForSnapshotCount(hostSocket, host, 3),
-        waitForSnapshotCount(guestSocket, guest, 3),
-      ]);
-
-      const hostLatestSnapshot = hostSnapshots.at(-1);
-      const guestLatestSnapshot = guestSnapshots.at(-1);
-      assert.ok(hostLatestSnapshot);
-      assert.ok(guestLatestSnapshot);
-      assert.ok(hostLatestSnapshot.snapshot.serverFrame >= 2);
-      assert.ok(guestLatestSnapshot.snapshot.serverFrame >= 2);
-      assert.ok(hostLatestSnapshot.snapshot.players[0]?.x !== hostSnapshot.snapshot.players[0]?.x);
-      assert.equal(hostLatestSnapshot.snapshot.players[0]?.grounded, true);
-      assert.equal(hostLatestSnapshot.snapshot.players[0]?.action, "run");
+      const inRangeSnapshot = await waitForSnapshot(host, (payload) => {
+        const players = payload.snapshot.players;
+        const attacker = players[0];
+        const target = players[1];
+        return Boolean(attacker && target && target.x - attacker.x <= 72);
+      });
 
       hostSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
         roomCode: createdLobby.lobby.roomCode,
-        inputFrame: hostLatestSnapshot.snapshot.serverFrame,
+        inputFrame: inRangeSnapshot.snapshot.serverFrame,
         pressed: {
           left: false,
           right: false,
-          jump: true,
-          attack: false,
+          jump: false,
+          attack: true,
           special: false,
         },
       });
 
-      const jumpSnapshots = await waitForJumpArc(host, hostLatestSnapshot.snapshot.serverFrame);
-      const airborneSnapshot = jumpSnapshots.find(
-        (payload) => payload.snapshot.players[0]?.grounded === false,
-      );
-      const landingSnapshot = jumpSnapshots.findLast(
-        (payload) =>
-          payload.snapshot.serverFrame > hostLatestSnapshot.snapshot.serverFrame &&
-          payload.snapshot.players[0]?.grounded === true,
-      );
+      const hitSnapshot = await waitForSnapshot(host, (payload) => {
+        const target = payload.snapshot.players[1];
+        return Boolean(target && target.damage > 0);
+      });
 
-      assert.ok(airborneSnapshot);
-      assert.ok(landingSnapshot);
-      assert.ok((airborneSnapshot.snapshot.players[0]?.y ?? FLOOR_Y) < FLOOR_Y);
-      assert.ok((airborneSnapshot.snapshot.players[0]?.vy ?? 0) < 0);
-      assert.equal(airborneSnapshot.snapshot.players[0]?.action, "jump");
-      assert.equal(landingSnapshot.snapshot.players[0]?.y, FLOOR_Y);
-      assert.equal(landingSnapshot.snapshot.players[0]?.grounded, true);
+      const attacker = hitSnapshot.snapshot.players[0];
+      const target = hitSnapshot.snapshot.players[1];
+      assert.ok(attacker);
+      assert.ok(target);
+      assert.equal(attacker.action, "attack");
+      assert.ok(target.damage > 0);
+      assert.equal(target.action, "hitstun");
+      assert.ok(target.vx !== 0);
+      assert.ok(target.vy < 0);
+      assert.equal(target.grounded, false);
 
-      console.log("Match-start movement physics smoke test passed.");
-      console.log(`Room code: ${hostMatch.roomCode}`);
+      console.log("Combat smoke test passed.");
+      console.log(`Room code: ${createdLobby.lobby.roomCode}`);
     } finally {
       hostSocket.disconnect();
       guestSocket.disconnect();
@@ -214,15 +155,12 @@ function attachObservers(socket: Socket, state: TestClientState) {
   socket.on(SERVER_EVENTS.SESSION_JOINED, (payload: SessionJoinedPayload) => {
     state.session = payload;
   });
-
   socket.on(SERVER_EVENTS.LOBBY_STATE, (payload: LobbyStatePayload) => {
     state.lobbies.push(payload);
   });
-
   socket.on(SERVER_EVENTS.MATCH_STARTING, (payload: MatchStartingPayload) => {
     state.matchStarting = payload;
   });
-
   socket.on(SERVER_EVENTS.MATCH_SNAPSHOT, (payload: MatchSnapshotPayload) => {
     state.snapshots.push(payload);
   });
@@ -230,33 +168,22 @@ function attachObservers(socket: Socket, state: TestClientState) {
 
 async function waitForServer(readOutput: () => string) {
   const deadline = Date.now() + SERVER_START_TIMEOUT_MS;
-
   while (Date.now() < deadline) {
-    if (readOutput().includes("[server] listening")) {
-      return;
-    }
-
+    if (readOutput().includes("[server] listening")) return;
     await delay(50);
   }
-
   throw new Error(`Server did not start in time.\n${readOutput()}`);
 }
 
 async function waitForConnect(socket: Socket) {
-  if (socket.connected) {
-    return;
-  }
-
+  if (socket.connected) return;
   await onceWithTimeout(socket, "connect");
 }
 
 async function waitForSessionJoined(socket: Socket, state: TestClientState) {
-  if (state.session) {
-    return state.session;
-  }
-
+  if (state.session) return state.session;
   await onceWithTimeout(socket, SERVER_EVENTS.SESSION_JOINED);
-  assert.ok(state.session, "Expected session:joined payload.");
+  assert.ok(state.session);
   return state.session;
 }
 
@@ -283,66 +210,48 @@ async function waitForLobby(
   predicate: (payload: LobbyStatePayload) => boolean,
 ) {
   const deadline = Date.now() + EVENT_TIMEOUT_MS;
-
   while (Date.now() < deadline) {
     const match = state.lobbies.findLast(predicate);
-    if (match) {
-      return match;
-    }
-
+    if (match) return match;
     await delay(25);
   }
-
   throw new Error("Timed out waiting for matching lobby state.");
 }
 
 async function waitForMatchStarting(socket: Socket, state: TestClientState) {
-  if (state.matchStarting) {
-    return state.matchStarting;
-  }
-
+  if (state.matchStarting) return state.matchStarting;
   await onceWithTimeout(socket, SERVER_EVENTS.MATCH_STARTING);
-  assert.ok(state.matchStarting, "Expected match:starting payload.");
+  assert.ok(state.matchStarting);
   return state.matchStarting;
 }
 
 async function waitForSnapshotCount(socket: Socket, state: TestClientState, count: number) {
   const deadline = Date.now() + EVENT_TIMEOUT_MS;
-
   while (Date.now() < deadline) {
-    if (state.snapshots.length >= count) {
-      return state.snapshots;
-    }
-
-    await onceWithTimeout(socket, SERVER_EVENTS.MATCH_SNAPSHOT, 1000);
+    if (state.snapshots.length >= count) return state.snapshots;
+    await delay(25);
   }
-
   throw new Error(`Timed out waiting for ${count} match:snapshot payloads.`);
 }
 
-async function waitForJumpArc(state: TestClientState, startingFrame: number) {
+async function waitForSnapshot(
+  state: TestClientState,
+  predicate: (payload: MatchSnapshotPayload) => boolean,
+) {
   const deadline = Date.now() + EVENT_TIMEOUT_MS;
-
   while (Date.now() < deadline) {
-    const relevant = state.snapshots.filter((payload) => payload.snapshot.serverFrame > startingFrame);
-    const hasAirborne = relevant.some((payload) => payload.snapshot.players[0]?.grounded === false);
-    const hasLanding = relevant.some((payload) => payload.snapshot.players[0]?.grounded === true);
-
-    if (hasAirborne && hasLanding) {
-      return relevant;
-    }
-
+    const match = state.snapshots.findLast(predicate);
+    if (match) return match;
     await delay(25);
   }
-
-  throw new Error("Timed out waiting for jump arc snapshots.");
+  throw new Error("Timed out waiting for matching snapshot.");
 }
 
 async function onceWithTimeout(socket: Socket, eventName: string, timeoutMs = EVENT_TIMEOUT_MS) {
   return Promise.race([
     once(socket, eventName),
     delay(timeoutMs).then(() => {
-      throw new Error(`Timed out waiting for "${eventName}".`);
+      throw new Error(`Timed out waiting for \"${eventName}\".`);
     }),
   ]);
 }

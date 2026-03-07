@@ -31,6 +31,7 @@ export type PlayerMatchState = {
   y: number;
   vx: number;
   vy: number;
+  grounded: boolean;
   damage: number;
   stocks: number;
   facing: FacingDirection;

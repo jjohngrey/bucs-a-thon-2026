@@ -17,6 +17,18 @@ The server currently supports:
 - initial `match:snapshot` emission when the match becomes active
 - recurring `match:snapshot` emission for active matches
 - in-memory `match:input` storage per player
+- basic authoritative movement physics:
+  - horizontal movement
+  - jump
+  - gravity
+  - floor collision
+  - grounded/facing/action state
+- first combat slice:
+  - one attack input
+  - melee hit detection
+  - damage application
+  - knockback impulse
+  - hitstun state
 - explicit `match:end` handling with `match:ended` broadcast
 - host-triggered return to lobby after results
 - cleanup of in-memory match sessions when a room breaks
@@ -48,6 +60,7 @@ corepack pnpm smoke:match-start
 - after countdown, lobby phase moves to `in-match`
 - both clients receive an initial `match:snapshot`
 - active matches continue emitting snapshots with increasing server frames
+- server snapshots reflect real movement state changes including jump/gravity/floor landing
 
 ### `smoke:match-end`
 
@@ -55,6 +68,13 @@ corepack pnpm smoke:match-start
 - both clients receive `match:ended`
 - lobby phase moves to `finished`
 - the active in-memory match loop is cleaned up
+
+### `smoke:combat`
+
+- a player can move into range and attack
+- the target takes damage
+- the target receives knockback
+- attacker/target action states reflect attack and hitstun
 
 ### `smoke:return-lobby`
 
@@ -65,6 +85,6 @@ corepack pnpm smoke:match-start
 
 ## Not Done Yet
 
-- live `match:input` handling
-- authoritative gameplay simulation beyond placeholder movement
+- combat simulation
+- stocks and respawn rules
 - reconnect behavior for active matches

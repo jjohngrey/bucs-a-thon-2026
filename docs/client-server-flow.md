@@ -84,6 +84,17 @@ This is the plain-English version of how the client and server talk to each othe
   - the server emits an initial `match:snapshot`
 - while the match is active, the server keeps emitting `match:snapshot` on a tick
 - clients can send `match:input`, and the server stores the latest input for each player
+- the current backend simulation now applies:
+  - horizontal movement
+  - jump
+  - gravity
+  - floor collision
+- the current backend combat simulation now applies:
+  - one attack input
+  - melee hit detection
+  - damage
+  - knockback
+  - hitstun
 - a client can trigger `match:end` to end the current match lifecycle
 
 The live gameplay loop is still the next step:
