@@ -20,13 +20,15 @@ body {
 
 body.home-active,
 body.character-select-active,
-body.lobby-active {
+body.lobby-active,
+body.countdown-active {
   background: var(--retro-bg);
   color: var(--retro-panel);
 }
 
 body.character-select-active,
-body.lobby-active {
+body.lobby-active,
+body.countdown-active {
   font-family: "Share Tech Mono", "Orbitron", monospace;
 }
 
@@ -642,6 +644,65 @@ input {
 .countdown {
   font-size: 48px;
   font-weight: 700;
+}
+
+/* --- Countdown screen: retro theme --- */
+.countdown-screen {
+  max-width: 420px;
+}
+
+.countdown-card {
+  background: var(--retro-panel);
+  border: 4px solid var(--retro-border);
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 2px var(--retro-bg),
+    inset 0 2px 0 rgba(255, 255, 255, 0.4),
+    8px 8px 0 rgba(0, 0, 0, 0.25);
+  color: var(--retro-text);
+  padding: 36px 28px;
+  text-align: center;
+}
+
+.countdown-title {
+  font-family: "Orbitron", "Share Tech Mono", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--retro-text);
+  margin: 0 0 12px;
+}
+
+.countdown-stage {
+  font-size: 0.8rem;
+  color: var(--retro-muted);
+  margin: 0 0 24px;
+}
+
+.countdown-stage strong {
+  color: var(--retro-text);
+}
+
+.countdown-number {
+  font-family: "Orbitron", "Share Tech Mono", sans-serif;
+  font-size: 4.5rem;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--retro-border);
+  margin: 0 0 16px;
+  text-shadow: 0 0 0 2px var(--retro-bg);
+}
+
+.countdown-subtitle {
+  font-size: 0.85rem;
+  color: var(--retro-muted);
+  margin: 0;
+}
+
+.countdown-screen .note--error {
+  color: #dc2626;
+  margin-top: 16px;
 }
 
 .controls-note {

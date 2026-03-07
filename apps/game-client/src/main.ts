@@ -779,6 +779,7 @@ function render(): void {
   document.body.classList.toggle("home-active", state.screen === "home");
   document.body.classList.toggle("character-select-active", state.screen === "character-select");
   document.body.classList.toggle("lobby-active", state.screen === "lobby");
+  document.body.classList.toggle("countdown-active", state.screen === "countdown");
   updateLobbyMusic();
   app.innerHTML = renderScreen();
 
@@ -947,12 +948,12 @@ function renderCountdownScreen(): string {
   const secondsLeft = Math.max(0, Math.ceil((countdownMs - elapsedMs) / 1000));
 
   return `
-    <main class="shell">
-      <section class="card">
-        <h1>Match Starting</h1>
-        <p>Stage: <strong>${escapeHtml(state.matchStarting?.stageId ?? "unknown")}</strong></p>
-        <p class="countdown">${secondsLeft}</p>
-        <p>Waiting for authoritative snapshots...</p>
+    <main class="shell countdown-screen">
+      <section class="card countdown-card">
+        <h1 class="countdown-title">Match Starting</h1>
+        <p class="countdown-stage">Stage: <strong>${escapeHtml(state.matchStarting?.stageId ?? "unknown")}</strong></p>
+        <p class="countdown-number" aria-live="polite">${secondsLeft}</p>
+        <p class="countdown-subtitle">Get ready...</p>
         ${renderMessages()}
       </section>
     </main>
