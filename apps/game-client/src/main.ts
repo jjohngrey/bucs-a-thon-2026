@@ -47,15 +47,24 @@ const WORLD_MAX_X = 1400;
 const ARENA_WIDTH = 840;
 const ARENA_HEIGHT = 360;
 const GROUND_Y_PX = 280;
-const LOCAL_SPEED_PER_TICK = 30;
-const LOCAL_JUMP_VELOCITY = -20;
-const LOCAL_GRAVITY_PER_TICK = 4.0;
+const LOCAL_SPEED_PER_TICK = 6;
+const LOCAL_JUMP_VELOCITY = -14;
+const LOCAL_GRAVITY_PER_TICK = 1.2;
 const LOCAL_MAX_FALL_SPEED_PER_TICK = 12;
+const FALLING_PLATFORM_WORLD_X = 500;
+const FALLING_PLATFORM_WORLD_Y = -110;
+const FALLING_PLATFORM_WIDTH_PX = 170;
+const FALLING_PLATFORM_HEIGHT_PX = 12;
+const FALLING_PLATFORM_STABLE_FRAMES = SERVER_TICK_RATE * 5;
+const FALLING_PLATFORM_FALL_FRAMES = SERVER_TICK_RATE * 2;
+const FALLING_PLATFORM_RESET_FRAMES = SERVER_TICK_RATE * 2;
+const FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
 
 type CharacterSpriteSet = {
   stand: string;
   walking: string;
   punch: string;
+  kick: string;
   fighting: string;
   cheer: string;
 };
@@ -65,6 +74,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/jay/jay_stand.png",
     walking: "/assets/jay/jay_walking.png",
     punch: "/assets/jay/jay_punch.png",
+    kick: "/assets/jay/jay_kick.png",
     fighting: "/assets/jay/jay_fighting.png",
     cheer: "/assets/jay/jay_cheer.png",
   },
@@ -72,6 +82,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/jia/jia_stand.png",
     walking: "/assets/jia/jia_walking.png",
     punch: "/assets/jia/jia_punch.png",
+    kick: "/assets/jia/jia_kick.png",
     fighting: "/assets/jia/jia_fighting.png",
     cheer: "/assets/jia/jia%20cheer.png",
   },
@@ -79,6 +90,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/ryan/ryan_stand.png",
     walking: "/assets/ryan/ryan%20walking.png",
     punch: "/assets/ryan/ryan_punch.png",
+    kick: "/assets/ryan/ryan_kick.png",
     fighting: "/assets/ryan/ryan_fighting.png",
     cheer: "/assets/ryan/ryan_cheer.png",
   },
@@ -86,6 +98,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/fahim/fahim_stand.png",
     walking: "/assets/fahim/fahim_walking.png",
     punch: "/assets/fahim/fahim_punch.png",
+    kick: "/assets/fahim/fahim_kick.png",
     fighting: "/assets/fahim/fahim_fighting.png",
     cheer: "/assets/fahim/fahim_cheer.png",
   },
@@ -93,6 +106,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/jay/jay_stand.png",
     walking: "/assets/jay/jay_walking.png",
     punch: "/assets/jay/jay_punch.png",
+    kick: "/assets/jay/jay_kick.png",
     fighting: "/assets/jay/jay_fighting.png",
     cheer: "/assets/jay/jay_cheer.png",
   },
@@ -100,6 +114,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/jia/jia_stand.png",
     walking: "/assets/jia/jia_walking.png",
     punch: "/assets/jia/jia_punch.png",
+    kick: "/assets/jia/jia_kick.png",
     fighting: "/assets/jia/jia_fighting.png",
     cheer: "/assets/jia/jia%20cheer.png",
   },
@@ -107,6 +122,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/ryan/ryan_stand.png",
     walking: "/assets/ryan/ryan%20walking.png",
     punch: "/assets/ryan/ryan_punch.png",
+    kick: "/assets/ryan/ryan_kick.png",
     fighting: "/assets/ryan/ryan_fighting.png",
     cheer: "/assets/ryan/ryan_cheer.png",
   },
@@ -114,9 +130,17 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/fahim/fahim_stand.png",
     walking: "/assets/fahim/fahim_walking.png",
     punch: "/assets/fahim/fahim_punch.png",
+    kick: "/assets/fahim/fahim_kick.png",
     fighting: "/assets/fahim/fahim_fighting.png",
     cheer: "/assets/fahim/fahim_cheer.png",
   },
+};
+
+const CHARACTER_DISPLAY: Record<string, { name: string; stand: string }> = {
+  "fighter-1": { name: "Jay", stand: "/assets/jay/jay_stand.png" },
+  "fighter-2": { name: "Jia", stand: "/assets/jia/jia_stand.png" },
+  "fighter-3": { name: "Ryan", stand: "/assets/ryan/ryan_stand.png" },
+  "fighter-4": { name: "Fahim", stand: "/assets/fahim/fahim_stand.png" },
 };
 const DEFAULT_MATCH_CHARACTER_LABEL = "temp-fighter";
 
@@ -152,14 +176,22 @@ let localBypassServerFrame = 0;
 const LOBBY_MUSIC_SCREENS: Screen[] = ["home", "character-select", "lobby"];
 const lobbyMusic = new Audio("/audio/music/lobby.mp3");
 lobbyMusic.loop = true;
+let lobbyMusicMuted = false;
 
 function updateLobbyMusic(): void {
   const shouldPlay = LOBBY_MUSIC_SCREENS.includes(state.screen);
-  if (shouldPlay && lobbyMusic.paused) {
+  lobbyMusic.muted = lobbyMusicMuted;
+  if (shouldPlay && lobbyMusic.paused && !lobbyMusicMuted) {
     lobbyMusic.play().catch(() => {});
   } else if (!shouldPlay && !lobbyMusic.paused) {
     lobbyMusic.pause();
   }
+}
+
+function renderMuteButton(): string {
+  const label = lobbyMusicMuted ? "Unmute" : "Mute";
+  const src = lobbyMusicMuted ? "/assets/home/volume-mute.png" : "/assets/home/volume.png";
+  return `<button type="button" class="mute-btn" data-action="toggle-mute" aria-label="${label}" title="${label}"><img src="${src}" alt="" class="mute-btn-icon" /></button>`;
 }
 
 const state: AppState = {
@@ -185,6 +217,7 @@ const pressedInput: PressedInput = {
   right: false,
   jump: false,
   attack: false,
+  kick: false,
   special: false,
 };
 
@@ -260,8 +293,19 @@ appRoot.addEventListener("click", async (event) => {
     case "leave-lobby":
       await leaveAndDisconnectToHome();
       break;
+    case "return-to-lobby":
+      state.screen = "lobby";
+      state.matchEnded = null;
+      state.statusMessage = "";
+      render();
+      break;
     case "start-match":
       emitMatchStart();
+      break;
+    case "toggle-mute":
+      lobbyMusicMuted = !lobbyMusicMuted;
+      lobbyMusic.muted = lobbyMusicMuted;
+      render();
       break;
     default:
       break;
@@ -328,6 +372,9 @@ function applyKeyboardPress(code: string, isPressed: boolean): boolean {
       pressedInput.attack = isPressed;
       return true;
     case "KeyK":
+      pressedInput.kick = isPressed;
+      return true;
+    case "KeyL":
       pressedInput.special = isPressed;
       return true;
     case "KeyA":
@@ -658,15 +705,17 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
   const resolvedY = grounded ? 0 : nextY;
   const resolvedVy = grounded ? 0 : verticalVelocity;
   const facing = horizontalVelocity < 0 ? "left" : horizontalVelocity > 0 ? "right" : me.facing;
-  const action = pressedInput.attack
-    ? "attack"
-    : grounded
-      ? horizontalVelocity === 0
-        ? "idle"
-        : "run"
-      : resolvedVy < 0
-        ? "jump"
-        : "fall";
+  const action = pressedInput.kick
+    ? "kick"
+    : pressedInput.attack
+      ? "attack"
+      : grounded
+        ? horizontalVelocity === 0
+          ? "idle"
+          : "run"
+        : resolvedVy < 0
+          ? "jump"
+          : "fall";
 
   const nextPlayers: MatchSnapshot["players"] = [
     {
@@ -896,9 +945,13 @@ function render(): void {
   const selectionStart = active instanceof HTMLInputElement ? active.selectionStart : null;
   const selectionEnd = active instanceof HTMLInputElement ? active.selectionEnd : null;
 
+  const isResults = state.screen === "results";
+  document.documentElement.classList.toggle("results-active", isResults);
   document.body.classList.toggle("home-active", state.screen === "home");
   document.body.classList.toggle("character-select-active", state.screen === "character-select");
   document.body.classList.toggle("lobby-active", state.screen === "lobby");
+  document.body.classList.toggle("countdown-active", state.screen === "countdown");
+  document.body.classList.toggle("results-active", isResults);
   updateLobbyMusic();
   app.innerHTML = renderScreen();
 
@@ -934,6 +987,7 @@ function renderHomeScreen(): string {
   const canJoin = normalizeRoomCode(state.joinCodeInput).length === ROOM_CODE_LENGTH;
 
   return `
+    ${renderMuteButton()}
     <main class="shell home-screen">
       <section class="card home-card">
         <div class="home-title">
@@ -985,6 +1039,7 @@ function renderCharacterSelectScreen(): string {
   }).join("");
 
   return `
+    ${renderMuteButton()}
     <main class="shell character-select-screen">
       <section class="card character-select-card">
         <h1 class="character-select-title">Character Select</h1>
@@ -1036,6 +1091,7 @@ function renderLobbyScreen(): string {
     : "<li class=\"lobby-player lobby-player--empty\">Waiting for players...</li>";
 
   return `
+    ${renderMuteButton()}
     <main class="shell lobby-screen">
       <section class="card lobby-card">
         <h1 class="lobby-title">Lobby</h1>
@@ -1064,12 +1120,12 @@ function renderCountdownScreen(): string {
   const secondsLeft = Math.max(0, Math.ceil((countdownMs - elapsedMs) / 1000));
 
   return `
-    <main class="shell">
-      <section class="card">
-        <h1>Match Starting</h1>
-        <p>Stage: <strong>${escapeHtml(state.matchStarting?.stageId ?? "unknown")}</strong></p>
-        <p class="countdown">${secondsLeft}</p>
-        <p>Waiting for authoritative snapshots...</p>
+    <main class="shell countdown-screen">
+      <section class="card countdown-card">
+        <h1 class="countdown-title">Match Starting</h1>
+        <p class="countdown-stage">Stage: <strong>${escapeHtml(state.matchStarting?.stageId ?? "unknown")}</strong></p>
+        <p class="countdown-number" aria-live="polite">${secondsLeft}</p>
+        <p class="countdown-subtitle">Get ready...</p>
         ${renderMessages()}
       </section>
     </main>
@@ -1078,12 +1134,33 @@ function renderCountdownScreen(): string {
 
 function renderMatchScreen(): string {
   const snapshot = state.matchSnapshot;
+  const fallingPlatformMarkup = renderFallingPlatform(snapshot);
   if (!snapshot) {
+    const placeholderPlayers = (state.lobby?.players ?? [])
+      .map((player, index) => {
+        const x = 260 + index * 260;
+        const y = 500;
+        return `
+          <div
+            class="arena-player arena-player--placeholder"
+            style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
+          >
+            <div class="arena-player__label">${escapeHtml(player.displayName)} (loading)</div>
+          </div>
+        `;
+      })
+      .join("");
+
     return `
-      <main class="shell">
-        <section class="card">
+      <main class="shell shell--wide match-screen">
+        <section class="card match-card">
           <h1>Match</h1>
           <p>Waiting for snapshot...</p>
+          <div class="arena">
+            <div class="arena-floor"></div>
+            ${fallingPlatformMarkup}
+            ${placeholderPlayers}
+          </div>
           ${renderMessages()}
         </section>
       </main>
@@ -1110,6 +1187,7 @@ function renderMatchScreen(): string {
             class="arena-player__sprite"
             src="${spriteUrl}"
             alt="${escapeHtml(player.displayName)} ${actionState}"
+            onerror="this.style.display='none'"
             style="transform: scaleX(${facingScale});"
           />
           <div class="arena-player__label">${escapeHtml(player.displayName)} (${actionState})</div>
@@ -1134,38 +1212,161 @@ function renderMatchScreen(): string {
         : player.respawnInvulnerabilityMs > 0
           ? `Invulnerable ${Math.ceil(player.respawnInvulnerabilityMs / 1000)}s`
           : "In play";
-      return `<li><strong>${escapeHtml(player.displayName)}</strong> - ${player.damage}% - Stocks: ${player.stocks} - ${status}</li>`;
+      const damage = Math.max(0, Math.round(player.damage));
+      const damageTierClass = getDamageTierClass(damage);
+      const stockSlots = Math.max(3, player.stocks);
+      const stocksMarkup = Array.from({ length: stockSlots }, (_, index) => {
+        const isFilled = index < player.stocks;
+        return `<span class="hud-player__stock ${isFilled ? "hud-player__stock--filled" : "hud-player__stock--empty"}"></span>`;
+      }).join("");
+      const koClass = player.isOutOfPlay ? "hud-player--ko" : "";
+      return `
+        <article class="hud-player ${koClass}">
+          <div class="hud-player__top">
+            <strong class="hud-player__name">${escapeHtml(player.displayName)}</strong>
+            <span class="hud-player__status">${status}</span>
+          </div>
+          <div class="hud-player__bottom">
+            <div class="hud-player__stocks" aria-label="Stocks remaining">${stocksMarkup}</div>
+            <div class="hud-player__damage-wrap">
+              <span class="hud-player__damage ${damageTierClass}">${damage}</span>
+              <span class="hud-player__percent">%</span>
+            </div>
+          </div>
+        </article>
+      `;
     })
     .join("");
 
   return `
-    <main class="shell shell--wide">
-      <section class="card">
+    <main class="shell shell--wide match-screen">
+      <section class="card match-card">
         <h1>Match</h1>
         <p>Authoritative snapshot rendering with temporary local prediction feel.</p>
         <p class="controls-note">P1: Arrow keys + J/K. In local bypass, P2: W/A/D + F/G.</p>
         <div class="arena">
           <div class="arena-floor"></div>
+          ${fallingPlatformMarkup}
           ${respawnPlatformsMarkup}
           ${playersMarkup}
         </div>
-        <ul class="hud-list">${hudMarkup}</ul>
+        <section class="match-hud" aria-label="Match status">${hudMarkup}</section>
         ${renderMessages()}
       </section>
     </main>
   `;
 }
 
+type FallingPlatformVisualState = {
+  visible: boolean;
+  x: number;
+  y: number;
+  widthPx: number;
+  heightPx: number;
+  shaking: boolean;
+  falling: boolean;
+};
+
+function renderFallingPlatform(snapshot: MatchSnapshot | null): string {
+  const platform = getFallingPlatformVisualState(snapshot);
+  if (!platform.visible) {
+    return "";
+  }
+
+  const shakingClass = platform.shaking ? "arena-falling-platform--shaking" : "";
+  const fallingClass = platform.falling ? "arena-falling-platform--falling" : "";
+  return `
+    <div
+      class="arena-falling-platform ${shakingClass} ${fallingClass}"
+      style="left:${platform.x.toFixed(1)}px;top:${platform.y.toFixed(1)}px;width:${platform.widthPx.toFixed(1)}px;height:${platform.heightPx.toFixed(1)}px;"
+      aria-hidden="true"
+    ></div>
+  `;
+}
+
+function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingPlatformVisualState {
+  const cycleFrames = FALLING_PLATFORM_STABLE_FRAMES + FALLING_PLATFORM_FALL_FRAMES + FALLING_PLATFORM_RESET_FRAMES;
+  const fallbackFrame = Math.floor(performance.now() / (1000 / SERVER_TICK_RATE));
+  const sourceFrame = snapshot?.serverFrame ?? fallbackFrame;
+  const phaseFrame = ((sourceFrame % cycleFrames) + cycleFrames) % cycleFrames;
+  const baseX = worldToScreenX(FALLING_PLATFORM_WORLD_X);
+  const baseY = worldToScreenY(FALLING_PLATFORM_WORLD_Y);
+
+  if (phaseFrame < FALLING_PLATFORM_STABLE_FRAMES) {
+    const warningWindowStart = FALLING_PLATFORM_STABLE_FRAMES - SERVER_TICK_RATE;
+    return {
+      visible: true,
+      x: baseX,
+      y: baseY,
+      widthPx: FALLING_PLATFORM_WIDTH_PX,
+      heightPx: FALLING_PLATFORM_HEIGHT_PX,
+      shaking: phaseFrame >= warningWindowStart,
+      falling: false,
+    };
+  }
+
+  if (phaseFrame < FALLING_PLATFORM_STABLE_FRAMES + FALLING_PLATFORM_FALL_FRAMES) {
+    const fallFrame = phaseFrame - FALLING_PLATFORM_STABLE_FRAMES;
+    const progress = clamp(fallFrame / FALLING_PLATFORM_FALL_FRAMES, 0, 1);
+    const easedProgress = progress * progress;
+    return {
+      visible: true,
+      x: baseX,
+      y: baseY + FALLING_PLATFORM_DROP_DISTANCE_PX * easedProgress,
+      widthPx: FALLING_PLATFORM_WIDTH_PX,
+      heightPx: FALLING_PLATFORM_HEIGHT_PX,
+      shaking: false,
+      falling: true,
+    };
+  }
+
+  return {
+    visible: false,
+    x: baseX,
+    y: baseY,
+    widthPx: FALLING_PLATFORM_WIDTH_PX,
+    heightPx: FALLING_PLATFORM_HEIGHT_PX,
+    shaking: false,
+    falling: false,
+  };
+}
+
 function renderResultsScreen(): string {
   const summary = state.matchEnded;
+  const winnerId = summary?.winnerPlayerId ?? null;
+  const winnerPlayer = winnerId && state.lobby?.players
+    ? state.lobby.players.find((p) => p.id === winnerId)
+    : null;
+  const winnerDisplayName = winnerPlayer?.displayName ?? winnerId ?? "—";
+  const isYouWinner = winnerId === state.playerId;
+  const isYouLoser = Boolean(winnerId && state.playerId && winnerId !== state.playerId);
+  const eliminatedIds = summary?.eliminatedPlayerIds ?? [];
+  const eliminatedNames = eliminatedIds
+    .map((id) => state.lobby?.players?.find((p) => p.id === id)?.displayName ?? id)
+    .join(", ");
+  const badgeText = isYouLoser ? "DEFEAT" : "VICTORY";
+  const outcomeLine = isYouWinner
+    ? '<p class="results-outcome results-outcome--win">YOU WIN!</p>'
+    : isYouLoser
+      ? '<p class="results-outcome results-outcome--lose">YOU LOSE</p>'
+      : "";
   return `
-    <main class="shell">
-      <section class="card">
-        <h1>Results</h1>
-        <p>Winner: <strong>${escapeHtml(summary?.winnerPlayerId ?? "none")}</strong></p>
-        <p>Eliminated: ${escapeHtml(summary?.eliminatedPlayerIds.join(", ") || "none")}</p>
-        <div class="row">
-          <button type="button" data-action="leave-lobby">Exit To Home</button>
+    ${renderMuteButton()}
+    <main class="shell results-screen">
+      <section class="card results-card">
+        <div class="results-victory-badge results-victory-badge--${isYouLoser ? "defeat" : "victory"}" aria-hidden="true">${badgeText}</div>
+        ${outcomeLine}
+        <p class="results-winner-label">Winner</p>
+        <p class="results-winner-value results-winner-value--glow">${escapeHtml(winnerDisplayName)}</p>
+        ${eliminatedNames ? `
+        <p class="results-eliminated">
+          <span class="results-eliminated-label">Eliminated</span>
+          <span class="results-eliminated-value">${escapeHtml(eliminatedNames)}</span>
+        </p>
+        ` : ""}
+        <div class="results-actions">
+          <button type="button" class="results-btn results-btn--primary" data-action="return-to-lobby">Stay in Lobby</button>
+          <button type="button" class="results-btn" data-action="leave-lobby">Exit To Home</button>
         </div>
         ${renderMessages()}
       </section>
@@ -1197,6 +1398,14 @@ function normalizeRoomCode(input: string): string {
 
 function normalizeDisplayName(input: string): string {
   return input.trim().slice(0, 24) || "Player";
+}
+
+function getDamageTierClass(damage: number): string {
+  if (damage >= 180) return "hud-player__damage--critical";
+  if (damage >= 130) return "hud-player__damage--danger";
+  if (damage >= 80) return "hud-player__damage--high";
+  if (damage >= 40) return "hud-player__damage--mid";
+  return "hud-player__damage--low";
 }
 
 function updateLocalPrediction(deltaMs: number): void {
@@ -1267,6 +1476,8 @@ function mapActionToAnimationState(action: PlayerAction): string {
       return "fall";
     case "attack":
       return "attack";
+    case "kick":
+      return "kick";
     case "hitstun":
       return "hitstun";
     case "respawn":
@@ -1317,6 +1528,8 @@ function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): strin
       return sprites.walking;
     case "attack":
       return sprites.punch;
+    case "kick":
+      return sprites.kick;
     case "jump":
     case "fall":
     case "hitstun":

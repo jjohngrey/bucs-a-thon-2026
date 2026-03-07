@@ -48,6 +48,7 @@ export type MatchInputPayload = {
     right: boolean;
     jump: boolean;
     attack: boolean;
+    kick: boolean;
     special: boolean;
   };
 };
