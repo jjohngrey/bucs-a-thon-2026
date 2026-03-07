@@ -253,6 +253,12 @@ appRoot.addEventListener("click", async (event) => {
     case "leave-lobby":
       await leaveAndDisconnectToHome();
       break;
+    case "return-to-lobby":
+      state.screen = "lobby";
+      state.matchEnded = null;
+      state.statusMessage = "";
+      render();
+      break;
     case "start-match":
       emitMatchStart();
       break;
@@ -784,9 +790,13 @@ function render(): void {
   const selectionStart = active instanceof HTMLInputElement ? active.selectionStart : null;
   const selectionEnd = active instanceof HTMLInputElement ? active.selectionEnd : null;
 
+  const isResults = state.screen === "results";
+  document.documentElement.classList.toggle("results-active", isResults);
   document.body.classList.toggle("home-active", state.screen === "home");
   document.body.classList.toggle("character-select-active", state.screen === "character-select");
   document.body.classList.toggle("lobby-active", state.screen === "lobby");
+  document.body.classList.toggle("countdown-active", state.screen === "countdown");
+  document.body.classList.toggle("results-active", isResults);
   updateLobbyMusic();
   app.innerHTML = renderScreen();
 
@@ -955,12 +965,12 @@ function renderCountdownScreen(): string {
   const secondsLeft = Math.max(0, Math.ceil((countdownMs - elapsedMs) / 1000));
 
   return `
-    <main class="shell">
-      <section class="card">
-        <h1>Match Starting</h1>
-        <p>Stage: <strong>${escapeHtml(state.matchStarting?.stageId ?? "unknown")}</strong></p>
-        <p class="countdown">${secondsLeft}</p>
-        <p>Waiting for authoritative snapshots...</p>
+    <main class="shell countdown-screen">
+      <section class="card countdown-card">
+        <h1 class="countdown-title">Match Starting</h1>
+        <p class="countdown-stage">Stage: <strong>${escapeHtml(state.matchStarting?.stageId ?? "unknown")}</strong></p>
+        <p class="countdown-number" aria-live="polite">${secondsLeft}</p>
+        <p class="countdown-subtitle">Get ready...</p>
         ${renderMessages()}
       </section>
     </main>
@@ -1168,14 +1178,40 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
 
 function renderResultsScreen(): string {
   const summary = state.matchEnded;
+  const winnerId = summary?.winnerPlayerId ?? null;
+  const winnerPlayer = winnerId && state.lobby?.players
+    ? state.lobby.players.find((p) => p.id === winnerId)
+    : null;
+  const winnerDisplayName = winnerPlayer?.displayName ?? winnerId ?? "—";
+  const isYouWinner = winnerId === state.playerId;
+  const isYouLoser = Boolean(winnerId && state.playerId && winnerId !== state.playerId);
+  const eliminatedIds = summary?.eliminatedPlayerIds ?? [];
+  const eliminatedNames = eliminatedIds
+    .map((id) => state.lobby?.players?.find((p) => p.id === id)?.displayName ?? id)
+    .join(", ");
+  const badgeText = isYouLoser ? "DEFEAT" : "VICTORY";
+  const outcomeLine = isYouWinner
+    ? '<p class="results-outcome results-outcome--win">YOU WIN!</p>'
+    : isYouLoser
+      ? '<p class="results-outcome results-outcome--lose">YOU LOSE</p>'
+      : "";
   return `
-    <main class="shell">
-      <section class="card">
-        <h1>Results</h1>
-        <p>Winner: <strong>${escapeHtml(summary?.winnerPlayerId ?? "none")}</strong></p>
-        <p>Eliminated: ${escapeHtml(summary?.eliminatedPlayerIds.join(", ") || "none")}</p>
-        <div class="row">
-          <button type="button" data-action="leave-lobby">Exit To Home</button>
+    ${renderMuteButton()}
+    <main class="shell results-screen">
+      <section class="card results-card">
+        <div class="results-victory-badge results-victory-badge--${isYouLoser ? "defeat" : "victory"}" aria-hidden="true">${badgeText}</div>
+        ${outcomeLine}
+        <p class="results-winner-label">Winner</p>
+        <p class="results-winner-value results-winner-value--glow">${escapeHtml(winnerDisplayName)}</p>
+        ${eliminatedNames ? `
+        <p class="results-eliminated">
+          <span class="results-eliminated-label">Eliminated</span>
+          <span class="results-eliminated-value">${escapeHtml(eliminatedNames)}</span>
+        </p>
+        ` : ""}
+        <div class="results-actions">
+          <button type="button" class="results-btn results-btn--primary" data-action="return-to-lobby">Stay in Lobby</button>
+          <button type="button" class="results-btn" data-action="leave-lobby">Exit To Home</button>
         </div>
         ${renderMessages()}
       </section>
