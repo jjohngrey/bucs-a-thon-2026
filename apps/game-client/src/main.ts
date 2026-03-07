@@ -14,6 +14,7 @@ import {
   type SessionJoinedPayload,
 } from "@bucs/shared";
 import { io, type Socket } from "socket.io-client";
+import { AudioSystem } from "./game/audio/AudioSystem";
 
 type Screen = "home" | "character-select" | "lobby" | "countdown" | "match" | "results";
 type FlowMode = "create" | "join" | null;
@@ -40,12 +41,82 @@ type AppState = {
 const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
 const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
-const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"] as const;
-const CHARACTER_DISPLAY: Record<(typeof CHARACTER_CHOICES)[number], { name: string; stand: string }> = {
-  "fighter-1": { name: "Jay", stand: "/assets/jay/jay_stand.png" },
-  "fighter-2": { name: "Fahim", stand: "/assets/fahim/fahim_stand.png" },
-  "fighter-3": { name: "Ryan", stand: "/assets/ryan/ryan_stand.png" },
-  "fighter-4": { name: "Jia", stand: "/assets/jia/jia_stand.png" },
+const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
+const WORLD_MIN_X = -200;
+const WORLD_MAX_X = 1400;
+const ARENA_WIDTH = 840;
+const ARENA_HEIGHT = 360;
+const GROUND_Y_PX = 280;
+const LOCAL_SPEED_PER_TICK = 30;
+const LOCAL_JUMP_VELOCITY = -20;
+const LOCAL_GRAVITY_PER_TICK = 4.0;
+const LOCAL_MAX_FALL_SPEED_PER_TICK = 12;
+
+type CharacterSpriteSet = {
+  stand: string;
+  walking: string;
+  punch: string;
+  fighting: string;
+  cheer: string;
+};
+
+const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
+  "fighter-1": {
+    stand: "/assets/jay/jay_stand.png",
+    walking: "/assets/jay/jay_walking.png",
+    punch: "/assets/jay/jay_punch.png",
+    fighting: "/assets/jay/jay_fighting.png",
+    cheer: "/assets/jay/jay_cheer.png",
+  },
+  "fighter-2": {
+    stand: "/assets/jia/jia_stand.png",
+    walking: "/assets/jia/jia_walking.png",
+    punch: "/assets/jia/jia_punch.png",
+    fighting: "/assets/jia/jia_fighting.png",
+    cheer: "/assets/jia/jia%20cheer.png",
+  },
+  "fighter-3": {
+    stand: "/assets/ryan/ryan_stand.png",
+    walking: "/assets/ryan/ryan%20walking.png",
+    punch: "/assets/ryan/ryan_punch.png",
+    fighting: "/assets/ryan/ryan_fighting.png",
+    cheer: "/assets/ryan/ryan_cheer.png",
+  },
+  "fighter-4": {
+    stand: "/assets/fahim/fahim_stand.png",
+    walking: "/assets/fahim/fahim_walking.png",
+    punch: "/assets/fahim/fahim_punch.png",
+    fighting: "/assets/fahim/fahim_fighting.png",
+    cheer: "/assets/fahim/fahim_cheer.png",
+  },
+  jay: {
+    stand: "/assets/jay/jay_stand.png",
+    walking: "/assets/jay/jay_walking.png",
+    punch: "/assets/jay/jay_punch.png",
+    fighting: "/assets/jay/jay_fighting.png",
+    cheer: "/assets/jay/jay_cheer.png",
+  },
+  jia: {
+    stand: "/assets/jia/jia_stand.png",
+    walking: "/assets/jia/jia_walking.png",
+    punch: "/assets/jia/jia_punch.png",
+    fighting: "/assets/jia/jia_fighting.png",
+    cheer: "/assets/jia/jia%20cheer.png",
+  },
+  ryan: {
+    stand: "/assets/ryan/ryan_stand.png",
+    walking: "/assets/ryan/ryan%20walking.png",
+    punch: "/assets/ryan/ryan_punch.png",
+    fighting: "/assets/ryan/ryan_fighting.png",
+    cheer: "/assets/ryan/ryan_cheer.png",
+  },
+  fahim: {
+    stand: "/assets/fahim/fahim_stand.png",
+    walking: "/assets/fahim/fahim_walking.png",
+    punch: "/assets/fahim/fahim_punch.png",
+    fighting: "/assets/fahim/fahim_fighting.png",
+    cheer: "/assets/fahim/fahim_cheer.png",
+  },
 };
 const DEFAULT_MATCH_CHARACTER_LABEL = "temp-fighter";
 
@@ -65,6 +136,7 @@ if (!appRoot) {
   throw new Error("Missing #app root element.");
 }
 const app = appRoot;
+const audioSystem = new AudioSystem();
 
 let socket: Socket | null = null;
 let listenersAttached = false;
@@ -116,12 +188,39 @@ const pressedInput: PressedInput = {
   special: false,
 };
 
+const secondaryPressedInput: PressedInput = {
+  left: false,
+  right: false,
+  jump: false,
+  attack: false,
+  special: false,
+};
+
+const HIT_SFX_BY_CHARACTER: Record<string, string> = {
+  "fighter-1": "/audio/voice-memos/jay/hit.m4a",
+  "fighter-2": "/audio/voice-memos/jia/hit.m4a",
+  "fighter-3": "/audio/voice-memos/jay/hit.m4a",
+  "fighter-4": "/audio/voice-memos/jia/hit.m4a",
+  jay: "/audio/voice-memos/jay/hit.m4a",
+  jia: "/audio/voice-memos/jia/hit.m4a",
+  ryan: "/audio/voice-memos/jay/hit.m4a",
+  fahim: "/audio/voice-memos/jia/hit.m4a",
+};
+
+for (const [characterId, url] of Object.entries(HIT_SFX_BY_CHARACTER)) {
+  audioSystem.registerClip(`hit:${characterId}`, { url, volume: 0.9, poolSize: 3 });
+}
+
 render();
 registerKeyboardInput();
 startInputEmitLoop();
 startFrameLoop();
 
 appRoot.addEventListener("click", async (event) => {
+  if (!audioSystem.isEnabled()) {
+    audioSystem.enable();
+  }
+
   const target = event.target as HTMLElement | null;
   const actionElement = target?.closest<HTMLElement>("[data-action]");
   if (!actionElement) {
@@ -190,6 +289,10 @@ appRoot.addEventListener("input", (event) => {
 
 function registerKeyboardInput(): void {
   window.addEventListener("keydown", (event) => {
+    if (!audioSystem.isEnabled()) {
+      audioSystem.enable();
+    }
+
     if (event.repeat) {
       return;
     }
@@ -212,15 +315,12 @@ function registerKeyboardInput(): void {
 function applyKeyboardPress(code: string, isPressed: boolean): boolean {
   switch (code) {
     case "ArrowLeft":
-    case "KeyA":
       pressedInput.left = isPressed;
       return true;
     case "ArrowRight":
-    case "KeyD":
       pressedInput.right = isPressed;
       return true;
     case "ArrowUp":
-    case "KeyW":
     case "Space":
       pressedInput.jump = isPressed;
       return true;
@@ -230,9 +330,44 @@ function applyKeyboardPress(code: string, isPressed: boolean): boolean {
     case "KeyK":
       pressedInput.special = isPressed;
       return true;
+    case "KeyA":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.left = isPressed;
+      } else {
+        pressedInput.left = isPressed;
+      }
+      return true;
+    case "KeyD":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.right = isPressed;
+      } else {
+        pressedInput.right = isPressed;
+      }
+      return true;
+    case "KeyW":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.jump = isPressed;
+      } else {
+        pressedInput.jump = isPressed;
+      }
+      return true;
+    case "KeyF":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.attack = isPressed;
+      }
+      return true;
+    case "KeyG":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.special = isPressed;
+      }
+      return true;
     default:
       return false;
   }
+}
+
+function isLocalBypassActive(): boolean {
+  return localBypassIntervalId !== null && state.roomCode === "LOCAL";
 }
 
 function startInputEmitLoop(): void {
@@ -400,7 +535,9 @@ function startLocalBypassMatch(): void {
 
   const displayName = normalizeDisplayName(state.displayNameInput);
   const localPlayerId = "local-player";
+  const localBotPlayerId = "local-bot";
   const localCharacterId = state.selectedCharacterId ?? "fighter-1";
+  const localBotCharacterId = localCharacterId === "fighter-2" ? "fighter-3" : "fighter-2";
 
   state.mode = null;
   state.playerId = localPlayerId;
@@ -413,6 +550,7 @@ function startLocalBypassMatch(): void {
   state.inputFrame = 0;
   localBypassServerFrame = 0;
   predictionAccumulatorMs = 0;
+  resetPressedInputs();
 
   const initialSnapshot: MatchSnapshot = {
     serverFrame: localBypassServerFrame,
@@ -438,6 +576,26 @@ function startLocalBypassMatch(): void {
         facing: "right",
         action: "idle",
       },
+      {
+        id: localBotPlayerId,
+        displayName: "Player 2",
+        characterId: localBotCharacterId,
+        x: 180,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        grounded: true,
+        damage: 0,
+        stocks: 3,
+        isOutOfPlay: false,
+        respawnTimerMs: 0,
+        respawnInvulnerabilityMs: 0,
+        respawnPlatformCenterX: null,
+        respawnPlatformY: null,
+        respawnPlatformWidth: 0,
+        facing: "left",
+        action: "idle",
+      },
     ],
   };
 
@@ -446,6 +604,12 @@ function startLocalBypassMatch(): void {
   localPredictionByPlayerId = {
     [localPlayerId]: {
       x: 0,
+      y: 0,
+      vy: 0,
+      grounded: true,
+    },
+    [localBotPlayerId]: {
+      x: 180,
       y: 0,
       vy: 0,
       grounded: true,
@@ -468,10 +632,12 @@ function stopLocalBypassMatch(): void {
     window.clearInterval(localBypassIntervalId);
     localBypassIntervalId = null;
   }
+  resetPressedInputs();
 }
 
 function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
-  const me = previous.players[0];
+  const me = previous.players.find((player) => player.id === state.playerId);
+  const bot = previous.players.find((player) => player.id !== state.playerId);
   if (!me) {
     return previous;
   }
@@ -484,7 +650,9 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
         : 0;
 
   const jumped = pressedInput.jump && me.grounded;
-  const verticalVelocity = jumped ? LOCAL_JUMP_VELOCITY : me.vy + LOCAL_GRAVITY_PER_TICK;
+  const verticalVelocity = jumped
+    ? LOCAL_JUMP_VELOCITY
+    : Math.min(me.vy + LOCAL_GRAVITY_PER_TICK, LOCAL_MAX_FALL_SPEED_PER_TICK);
   const nextY = me.y + verticalVelocity;
   const grounded = nextY >= 0;
   const resolvedY = grounded ? 0 : nextY;
@@ -500,22 +668,62 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
         ? "jump"
         : "fall";
 
+  const nextPlayers: MatchSnapshot["players"] = [
+    {
+      ...me,
+      x: me.x + horizontalVelocity,
+      y: resolvedY,
+      vx: horizontalVelocity,
+      vy: resolvedVy,
+      grounded,
+      facing,
+      action,
+    },
+  ];
+
+  if (bot) {
+    const botHorizontalVelocity =
+      secondaryPressedInput.left && !secondaryPressedInput.right
+        ? -LOCAL_SPEED_PER_TICK
+        : secondaryPressedInput.right && !secondaryPressedInput.left
+          ? LOCAL_SPEED_PER_TICK
+          : 0;
+    const botJumped = secondaryPressedInput.jump && bot.grounded;
+    const botVerticalVelocity = botJumped
+      ? LOCAL_JUMP_VELOCITY
+      : Math.min(bot.vy + LOCAL_GRAVITY_PER_TICK, LOCAL_MAX_FALL_SPEED_PER_TICK);
+    const botNextY = bot.y + botVerticalVelocity;
+    const botGrounded = botNextY >= 0;
+    const botResolvedY = botGrounded ? 0 : botNextY;
+    const botResolvedVy = botGrounded ? 0 : botVerticalVelocity;
+    const botFacing = botHorizontalVelocity < 0 ? "left" : botHorizontalVelocity > 0 ? "right" : bot.facing;
+    const botAction = secondaryPressedInput.attack
+      ? "attack"
+      : botGrounded
+        ? botHorizontalVelocity === 0
+          ? "idle"
+          : "run"
+        : botResolvedVy < 0
+          ? "jump"
+          : "fall";
+
+    nextPlayers.push({
+      ...bot,
+      x: bot.x + botHorizontalVelocity,
+      y: botResolvedY,
+      vx: botHorizontalVelocity,
+      vy: botResolvedVy,
+      grounded: botGrounded,
+      facing: botFacing,
+      action: botAction,
+    });
+  }
+
   localBypassServerFrame += 1;
   return {
     serverFrame: localBypassServerFrame,
     phase: "active",
-    players: [
-      {
-        ...me,
-        x: me.x + horizontalVelocity,
-        y: resolvedY,
-        vx: horizontalVelocity,
-        vy: resolvedVy,
-        grounded,
-        facing,
-        action,
-      },
-    ],
+    players: nextPlayers,
   };
 }
 
@@ -630,6 +838,7 @@ function attachSocketListeners(activeSocket: Socket): void {
     state.statusMessage = "";
     state.errorMessage = "";
     latestSnapshotReceivedAtMs = performance.now();
+    playHitSfxForSnapshotDelta(previousSnapshot, payload.snapshot);
 
     const nextPrediction: Record<string, { x: number; y: number; vy: number; grounded: boolean }> = {};
     for (const player of payload.snapshot.players) {
@@ -934,7 +1143,7 @@ function renderMatchScreen(): string {
       <section class="card">
         <h1>Match</h1>
         <p>Authoritative snapshot rendering with temporary local prediction feel.</p>
-        <p class="controls-note">Move: A/D or Arrow keys, Jump: W/Up/Space, Attack: J, Special: K</p>
+        <p class="controls-note">P1: Arrow keys + J/K. In local bypass, P2: W/A/D + F/G.</p>
         <div class="arena">
           <div class="arena-floor"></div>
           ${respawnPlatformsMarkup}
@@ -962,6 +1171,19 @@ function renderResultsScreen(): string {
       </section>
     </main>
   `;
+}
+
+function resetPressedInputs(): void {
+  pressedInput.left = false;
+  pressedInput.right = false;
+  pressedInput.jump = false;
+  pressedInput.attack = false;
+  pressedInput.special = false;
+  secondaryPressedInput.left = false;
+  secondaryPressedInput.right = false;
+  secondaryPressedInput.jump = false;
+  secondaryPressedInput.attack = false;
+  secondaryPressedInput.special = false;
 }
 
 function renderMessages(): string {
@@ -1016,7 +1238,9 @@ function updateLocalPrediction(deltaMs: number): void {
             : 0;
 
       const shouldJump = pressedInput.jump && prediction.grounded;
-      prediction.vy = shouldJump ? LOCAL_JUMP_VELOCITY : prediction.vy + LOCAL_GRAVITY_PER_TICK;
+      prediction.vy = shouldJump
+        ? LOCAL_JUMP_VELOCITY
+        : Math.min(prediction.vy + LOCAL_GRAVITY_PER_TICK, LOCAL_MAX_FALL_SPEED_PER_TICK);
       prediction.x += horizontalVelocity;
       prediction.y += prediction.vy;
 
@@ -1052,6 +1276,35 @@ function mapActionToAnimationState(action: PlayerAction): string {
     default:
       return "idle";
   }
+}
+
+function playHitSfxForSnapshotDelta(previous: MatchSnapshot | null, next: MatchSnapshot): void {
+  if (!previous) {
+    return;
+  }
+
+  const previousByPlayerId = new Map(previous.players.map((player) => [player.id, player]));
+  for (const player of next.players) {
+    const previousPlayer = previousByPlayerId.get(player.id);
+    if (!previousPlayer) {
+      continue;
+    }
+
+    if (player.damage <= previousPlayer.damage) {
+      continue;
+    }
+
+    const key = getHitSfxKeyForCharacter(player.characterId);
+    audioSystem.play(key);
+  }
+}
+
+function getHitSfxKeyForCharacter(characterId: string): string {
+  const normalized = characterId.trim().toLowerCase();
+  if (HIT_SFX_BY_CHARACTER[normalized]) {
+    return `hit:${normalized}`;
+  }
+  return "hit:fighter-1";
 }
 
 function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): string {
