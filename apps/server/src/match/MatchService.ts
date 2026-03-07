@@ -18,6 +18,12 @@ import {
   DEFAULT_GRAVITY_PER_TICK,
   DEFAULT_HITSTUN_TICKS,
   DEFAULT_JUMP_VELOCITY,
+  DEFAULT_KICK_DAMAGE,
+  DEFAULT_KICK_HEIGHT,
+  DEFAULT_KICK_HITSTUN_TICKS,
+  DEFAULT_KICK_KNOCKBACK_X,
+  DEFAULT_KICK_KNOCKBACK_Y,
+  DEFAULT_KICK_RANGE,
   DEFAULT_KO_FALL_SPEED_PER_TICK,
   DEFAULT_KNOCKBACK_X,
   DEFAULT_KNOCKBACK_Y,
@@ -415,6 +421,7 @@ function advanceSnapshot(
       right: boolean;
       jump: boolean;
       attack: boolean;
+      kick: boolean;
       special: boolean;
     }
   >,
@@ -425,6 +432,7 @@ function advanceSnapshot(
       right: boolean;
       jump: boolean;
       attack: boolean;
+      kick: boolean;
       special: boolean;
     }
   >,
@@ -525,11 +533,38 @@ function advanceSnapshot(
     const currentInput = latestInputsByPlayerId[attacker.id];
     const previousInput = previousInputsByPlayerId[attacker.id];
     const attackTriggered = Boolean(currentInput?.attack && !previousInput?.attack);
-    if (!attackTriggered || attacker.action === PLAYER_ACTIONS.HITSTUN) {
+    const kickTriggered = Boolean(currentInput?.kick && !previousInput?.kick);
+    const specialTriggered = Boolean(currentInput?.special && !previousInput?.special);
+    if ((!attackTriggered && !kickTriggered && !specialTriggered) || attacker.action === PLAYER_ACTIONS.HITSTUN) {
       continue;
     }
 
-    attacker.action = PLAYER_ACTIONS.ATTACK;
+    // `special` input is reserved for future behavior and is intentionally a no-op for now.
+    if (specialTriggered && !attackTriggered && !kickTriggered) {
+      continue;
+    }
+
+    const attackProfile = kickTriggered
+      ? {
+          action: PLAYER_ACTIONS.KICK,
+          range: DEFAULT_KICK_RANGE,
+          height: DEFAULT_KICK_HEIGHT,
+          damage: DEFAULT_KICK_DAMAGE,
+          knockbackX: DEFAULT_KICK_KNOCKBACK_X,
+          knockbackY: DEFAULT_KICK_KNOCKBACK_Y,
+          hitstunTicks: DEFAULT_KICK_HITSTUN_TICKS,
+        }
+      : {
+          action: PLAYER_ACTIONS.ATTACK,
+          range: DEFAULT_ATTACK_RANGE,
+          height: DEFAULT_ATTACK_HEIGHT,
+          damage: DEFAULT_ATTACK_DAMAGE,
+          knockbackX: DEFAULT_KNOCKBACK_X,
+          knockbackY: DEFAULT_KNOCKBACK_Y,
+          hitstunTicks: DEFAULT_HITSTUN_TICKS,
+        };
+
+    attacker.action = attackProfile.action;
 
     const target = nextPlayers.find((candidate) => {
       if (candidate.id === attacker.id) {
@@ -541,8 +576,8 @@ function advanceSnapshot(
 
       const dx = candidate.x - attacker.x;
       const withinFacing =
-        attacker.facing === "right" ? dx >= 0 && dx <= DEFAULT_ATTACK_RANGE : dx <= 0 && dx >= -DEFAULT_ATTACK_RANGE;
-      const withinHeight = Math.abs(candidate.y - attacker.y) <= DEFAULT_ATTACK_HEIGHT;
+        attacker.facing === "right" ? dx >= 0 && dx <= attackProfile.range : dx <= 0 && dx >= -attackProfile.range;
+      const withinHeight = Math.abs(candidate.y - attacker.y) <= attackProfile.height;
       return withinFacing && withinHeight;
     });
 
@@ -550,14 +585,14 @@ function advanceSnapshot(
       continue;
     }
 
-    target.damage += DEFAULT_ATTACK_DAMAGE;
-    target.vx = attacker.facing === "right" ? DEFAULT_KNOCKBACK_X : -DEFAULT_KNOCKBACK_X;
-    target.vy = DEFAULT_KNOCKBACK_Y;
+    target.damage += attackProfile.damage;
+    target.vx = attacker.facing === "right" ? attackProfile.knockbackX : -attackProfile.knockbackX;
+    target.vy = attackProfile.knockbackY;
     target.grounded = false;
     target.y = Math.min(target.y, session.stage.floorY - 1);
     target.facing = attacker.facing === "right" ? "left" : "right";
     target.action = PLAYER_ACTIONS.HITSTUN;
-    hitstunTicksByPlayerId[target.id] = DEFAULT_HITSTUN_TICKS;
+    hitstunTicksByPlayerId[target.id] = attackProfile.hitstunTicks;
   }
 
   for (const player of nextPlayers) {

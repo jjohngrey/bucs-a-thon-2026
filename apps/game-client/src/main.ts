@@ -62,6 +62,7 @@ type CharacterSpriteSet = {
   stand: string;
   walking: string;
   punch: string;
+  kick: string;
   fighting: string;
   cheer: string;
 };
@@ -71,6 +72,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/jay/jay_stand.png",
     walking: "/assets/jay/jay_walking.png",
     punch: "/assets/jay/jay_punch.png",
+    kick: "/assets/jay/jay_kick.png",
     fighting: "/assets/jay/jay_fighting.png",
     cheer: "/assets/jay/jay_cheer.png",
   },
@@ -78,6 +80,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/jia/jia_stand.png",
     walking: "/assets/jia/jia_walking.png",
     punch: "/assets/jia/jia_punch.png",
+    kick: "/assets/jia/jia_kick.png",
     fighting: "/assets/jia/jia_fighting.png",
     cheer: "/assets/jia/jia%20cheer.png",
   },
@@ -85,6 +88,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/ryan/ryan_stand.png",
     walking: "/assets/ryan/ryan%20walking.png",
     punch: "/assets/ryan/ryan_punch.png",
+    kick: "/assets/ryan/ryan_kick.png",
     fighting: "/assets/ryan/ryan_fighting.png",
     cheer: "/assets/ryan/ryan_cheer.png",
   },
@@ -92,6 +96,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/fahim/fahim_stand.png",
     walking: "/assets/fahim/fahim_walking.png",
     punch: "/assets/fahim/fahim_punch.png",
+    kick: "/assets/fahim/fahim_kick.png",
     fighting: "/assets/fahim/fahim_fighting.png",
     cheer: "/assets/fahim/fahim_cheer.png",
   },
@@ -99,6 +104,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/jay/jay_stand.png",
     walking: "/assets/jay/jay_walking.png",
     punch: "/assets/jay/jay_punch.png",
+    kick: "/assets/jay/jay_kick.png",
     fighting: "/assets/jay/jay_fighting.png",
     cheer: "/assets/jay/jay_cheer.png",
   },
@@ -106,6 +112,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/jia/jia_stand.png",
     walking: "/assets/jia/jia_walking.png",
     punch: "/assets/jia/jia_punch.png",
+    kick: "/assets/jia/jia_kick.png",
     fighting: "/assets/jia/jia_fighting.png",
     cheer: "/assets/jia/jia%20cheer.png",
   },
@@ -113,6 +120,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/ryan/ryan_stand.png",
     walking: "/assets/ryan/ryan%20walking.png",
     punch: "/assets/ryan/ryan_punch.png",
+    kick: "/assets/ryan/ryan_kick.png",
     fighting: "/assets/ryan/ryan_fighting.png",
     cheer: "/assets/ryan/ryan_cheer.png",
   },
@@ -120,6 +128,7 @@ const CHARACTER_SPRITES: Record<string, CharacterSpriteSet> = {
     stand: "/assets/fahim/fahim_stand.png",
     walking: "/assets/fahim/fahim_walking.png",
     punch: "/assets/fahim/fahim_punch.png",
+    kick: "/assets/fahim/fahim_kick.png",
     fighting: "/assets/fahim/fahim_fighting.png",
     cheer: "/assets/fahim/fahim_cheer.png",
   },
@@ -205,6 +214,7 @@ const pressedInput: PressedInput = {
   right: false,
   jump: false,
   attack: false,
+  kick: false,
   special: false,
 };
 
@@ -331,6 +341,9 @@ function applyKeyboardPress(code: string, isPressed: boolean): boolean {
       pressedInput.attack = isPressed;
       return true;
     case "KeyK":
+      pressedInput.kick = isPressed;
+      return true;
+    case "KeyL":
       pressedInput.special = isPressed;
       return true;
     default:
@@ -593,15 +606,17 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
   const resolvedY = grounded ? 0 : nextY;
   const resolvedVy = grounded ? 0 : verticalVelocity;
   const facing = horizontalVelocity < 0 ? "left" : horizontalVelocity > 0 ? "right" : me.facing;
-  const action = pressedInput.attack
-    ? "attack"
-    : grounded
-      ? horizontalVelocity === 0
-        ? "idle"
-        : "run"
-      : resolvedVy < 0
-        ? "jump"
-        : "fall";
+  const action = pressedInput.kick
+    ? "kick"
+    : pressedInput.attack
+      ? "attack"
+      : grounded
+        ? horizontalVelocity === 0
+          ? "idle"
+          : "run"
+        : resolvedVy < 0
+          ? "jump"
+          : "fall";
 
   localBypassServerFrame += 1;
   return {
@@ -1306,6 +1321,8 @@ function mapActionToAnimationState(action: PlayerAction): string {
       return "fall";
     case "attack":
       return "attack";
+    case "kick":
+      return "kick";
     case "hitstun":
       return "hitstun";
     case "respawn":
@@ -1327,6 +1344,8 @@ function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): strin
       return sprites.walking;
     case "attack":
       return sprites.punch;
+    case "kick":
+      return sprites.kick;
     case "jump":
     case "fall":
     case "hitstun":

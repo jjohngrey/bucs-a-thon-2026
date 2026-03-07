@@ -10,6 +10,12 @@ export const DEFAULT_KNOCKBACK_X = 10;
 export const DEFAULT_KNOCKBACK_Y = -8;
 export const DEFAULT_HITSTUN_TICKS = 8;
 export const DEFAULT_KO_FALL_SPEED_PER_TICK = 30;
+export const DEFAULT_KICK_DAMAGE = 16;
+export const DEFAULT_KICK_RANGE = 92;
+export const DEFAULT_KICK_HEIGHT = 52;
+export const DEFAULT_KICK_KNOCKBACK_X = 14;
+export const DEFAULT_KICK_KNOCKBACK_Y = -10;
+export const DEFAULT_KICK_HITSTUN_TICKS = 10;
 
 export const PLAYER_ACTIONS = {
   IDLE: "idle",
@@ -20,6 +26,7 @@ export const PLAYER_ACTIONS = {
   HITSTUN: "hitstun",
   RESPAWN: "respawn",
   KO: "ko",
+  KICK: "kick",
 } as const;
 
 export type PlayerAction =
