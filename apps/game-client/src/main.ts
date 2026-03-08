@@ -45,20 +45,12 @@ const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
 const WORLD_MIN_X = -200;
 const WORLD_MAX_X = 1400;
 const ARENA_WIDTH = 840;
-const ARENA_HEIGHT = 360;
-const GROUND_Y_PX = 280;
+const ARENA_HEIGHT = 660;
+const GROUND_Y_PX = 500;
 const LOCAL_SPEED_PER_TICK = 6;
 const LOCAL_JUMP_VELOCITY = -14;
 const LOCAL_GRAVITY_PER_TICK = 1.2;
 const LOCAL_MAX_FALL_SPEED_PER_TICK = 12;
-const FALLING_PLATFORM_WORLD_X = 500;
-const FALLING_PLATFORM_WORLD_Y = -110;
-const FALLING_PLATFORM_WIDTH_PX = 170;
-const FALLING_PLATFORM_HEIGHT_PX = 12;
-const FALLING_PLATFORM_STABLE_FRAMES = SERVER_TICK_RATE * 5;
-const FALLING_PLATFORM_FALL_FRAMES = SERVER_TICK_RATE * 2;
-const FALLING_PLATFORM_RESET_FRAMES = SERVER_TICK_RATE * 2;
-const FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
 
 type CharacterSpriteSet = {
   stand: string;
@@ -1188,7 +1180,6 @@ function renderCountdownScreen(): string {
 
 function renderMatchScreen(): string {
   const snapshot = state.matchSnapshot;
-  const fallingPlatformMarkup = renderFallingPlatform(snapshot);
   if (!snapshot) {
     const placeholderPlayers = (state.lobby?.players ?? [])
       .map((player, index) => {
@@ -1212,7 +1203,6 @@ function renderMatchScreen(): string {
           <p>Waiting for snapshot...</p>
           <div class="arena">
             <div class="arena-floor"></div>
-            ${fallingPlatformMarkup}
             ${placeholderPlayers}
           </div>
           ${renderMessages()}
@@ -1298,7 +1288,6 @@ function renderMatchScreen(): string {
         <h1>SUPER SMASH BUCS</h1>
         <div class="arena">
           <div class="arena-floor"></div>
-          ${fallingPlatformMarkup}
           ${respawnPlatformsMarkup}
           ${playersMarkup}
         </div>
@@ -1307,80 +1296,6 @@ function renderMatchScreen(): string {
       </section>
     </main>
   `;
-}
-
-type FallingPlatformVisualState = {
-  visible: boolean;
-  x: number;
-  y: number;
-  widthPx: number;
-  heightPx: number;
-  shaking: boolean;
-  falling: boolean;
-};
-
-function renderFallingPlatform(snapshot: MatchSnapshot | null): string {
-  const platform = getFallingPlatformVisualState(snapshot);
-  if (!platform.visible) {
-    return "";
-  }
-
-  const shakingClass = platform.shaking ? "arena-falling-platform--shaking" : "";
-  const fallingClass = platform.falling ? "arena-falling-platform--falling" : "";
-  return `
-    <div
-      class="arena-falling-platform ${shakingClass} ${fallingClass}"
-      style="left:${platform.x.toFixed(1)}px;top:${platform.y.toFixed(1)}px;width:${platform.widthPx.toFixed(1)}px;height:${platform.heightPx.toFixed(1)}px;"
-      aria-hidden="true"
-    ></div>
-  `;
-}
-
-function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingPlatformVisualState {
-  const cycleFrames = FALLING_PLATFORM_STABLE_FRAMES + FALLING_PLATFORM_FALL_FRAMES + FALLING_PLATFORM_RESET_FRAMES;
-  const fallbackFrame = Math.floor(performance.now() / (1000 / SERVER_TICK_RATE));
-  const sourceFrame = snapshot?.serverFrame ?? fallbackFrame;
-  const phaseFrame = ((sourceFrame % cycleFrames) + cycleFrames) % cycleFrames;
-  const baseX = worldToScreenX(FALLING_PLATFORM_WORLD_X);
-  const baseY = worldToScreenY(FALLING_PLATFORM_WORLD_Y);
-
-  if (phaseFrame < FALLING_PLATFORM_STABLE_FRAMES) {
-    const warningWindowStart = FALLING_PLATFORM_STABLE_FRAMES - SERVER_TICK_RATE;
-    return {
-      visible: true,
-      x: baseX,
-      y: baseY,
-      widthPx: FALLING_PLATFORM_WIDTH_PX,
-      heightPx: FALLING_PLATFORM_HEIGHT_PX,
-      shaking: phaseFrame >= warningWindowStart,
-      falling: false,
-    };
-  }
-
-  if (phaseFrame < FALLING_PLATFORM_STABLE_FRAMES + FALLING_PLATFORM_FALL_FRAMES) {
-    const fallFrame = phaseFrame - FALLING_PLATFORM_STABLE_FRAMES;
-    const progress = clamp(fallFrame / FALLING_PLATFORM_FALL_FRAMES, 0, 1);
-    const easedProgress = progress * progress;
-    return {
-      visible: true,
-      x: baseX,
-      y: baseY + FALLING_PLATFORM_DROP_DISTANCE_PX * easedProgress,
-      widthPx: FALLING_PLATFORM_WIDTH_PX,
-      heightPx: FALLING_PLATFORM_HEIGHT_PX,
-      shaking: false,
-      falling: true,
-    };
-  }
-
-  return {
-    visible: false,
-    x: baseX,
-    y: baseY,
-    widthPx: FALLING_PLATFORM_WIDTH_PX,
-    heightPx: FALLING_PLATFORM_HEIGHT_PX,
-    shaking: false,
-    falling: false,
-  };
 }
 
 function renderResultsScreen(): string {
@@ -1488,6 +1403,18 @@ function updateLocalPrediction(deltaMs: number): void {
     if (player.id !== localPlayerId) {
       prediction.x = blend(prediction.x, player.x, 0.15);
       prediction.y = blend(prediction.y, player.y, 0.15);
+      prediction.vy = player.vy;
+      prediction.grounded = player.grounded;
+      continue;
+    }
+
+    const anchoredOnRespawnPlatform =
+      player.respawnInvulnerabilityMs > 0 &&
+      player.respawnPlatformCenterX !== null &&
+      player.respawnPlatformY !== null;
+    if (player.action === "respawn" || anchoredOnRespawnPlatform) {
+      prediction.x = blend(prediction.x, player.x, 0.25);
+      prediction.y = blend(prediction.y, player.y, 0.25);
       prediction.vy = player.vy;
       prediction.grounded = player.grounded;
       continue;
