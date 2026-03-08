@@ -545,7 +545,12 @@ function advanceSnapshot(
     const jumped = Boolean(input?.jump && player.grounded && !inHitstun && !chargingSpecial);
     const verticalVelocity = jumped ? DEFAULT_JUMP_VELOCITY : Math.min(player.vy + DEFAULT_GRAVITY_PER_TICK, MAX_FALL_SPEED_PER_TICK);
     const nextY = player.y + verticalVelocity;
-    const grounded = nextY >= session.stage.floorY;
+    const nextX = player.x + horizontalVelocity;
+    const onPlatform =
+      session.stageId === "491"
+        ? nextX >= STAGE_491_PLATFORM_MIN_X && nextX <= STAGE_491_PLATFORM_MAX_X
+        : true;
+    const grounded = onPlatform && nextY >= session.stage.floorY;
     const resolvedY = grounded ? session.stage.floorY : nextY;
     const resolvedVy = grounded ? 0 : verticalVelocity;
     const facing =
@@ -796,7 +801,7 @@ function createInitialPlayerState(
 
 function createRespawnedPlayerState(player: PlayerMatchState, session: MatchSession): PlayerMatchState {
   const respawnX = (session.stage.blastZone.minX + session.stage.blastZone.maxX) / 2;
-  const respawnY = session.stage.blastZone.minY + session.rules.respawnTopBuffer;
+  const respawnY = session.stage.floorY;
 
   return {
     ...player,
@@ -817,12 +822,23 @@ function createRespawnedPlayerState(player: PlayerMatchState, session: MatchSess
   };
 }
 
+/** Stage 491: platform exists only between these X bounds; outside = no floor, fall to death. */
+const STAGE_491_PLATFORM_MIN_X = 120;
+const STAGE_491_PLATFORM_MAX_X = 1144;
+/** Stage 491: die soon after falling off (bottom kill line, was 900). */
+const STAGE_491_BLAST_MAX_Y = 120;
+
 function isOutsideBlastZone(player: PlayerMatchState, session: MatchSession): boolean {
+  const stage = STAGES[session.stageId] ?? session.stage;
+  const b = stage.blastZone;
+  if (session.stageId === "491") {
+    return player.y < b.minY || player.y > STAGE_491_BLAST_MAX_Y;
+  }
   return (
-    player.x < session.stage.blastZone.minX ||
-    player.x > session.stage.blastZone.maxX ||
-    player.y < session.stage.blastZone.minY ||
-    player.y > session.stage.blastZone.maxY
+    player.x < b.minX ||
+    player.x > b.maxX ||
+    player.y < b.minY ||
+    player.y > b.maxY
   );
 }
 

@@ -53,10 +53,8 @@ const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
 const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
 const STAGE_CHOICES = [
-  { id: "rooftop", label: "Rooftop" },
-  { id: "bucs", label: "Bucs" },
   { id: "491", label: "491" },
-  { id: "arena", label: "Arena" },
+  { id: "bucs", label: "Bucs" },
 ] as const;
 const WORLD_MIN_X = -200;
 const WORLD_MAX_X = 1400;
@@ -78,6 +76,8 @@ const BASE_FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
 const BASE_FIGHTER_WIDTH_PX = 30;
 const BASE_FIGHTER_HEIGHT_PX = 72;
 const BASE_FIGHTER_FEET_OFFSET_PX = 10;
+const STAGE_491_PLATFORM_MIN_X = 120;
+const STAGE_491_PLATFORM_MAX_X = 1144;
 
 type CharacterSpriteSet = {
   stand: string;
@@ -1293,11 +1293,14 @@ function renderCountdownScreen(): string {
 
 function renderMatchScreen(): string {
   const snapshot = state.matchSnapshot;
+  const stageId = state.matchStarting?.stageId ?? null;
+  const isStage491 = stageId === "491";
   const arenaViewport = getArenaViewport();
   const fighterWidthPx = BASE_FIGHTER_WIDTH_PX * arenaViewport.scale;
   const fighterHeightPx = BASE_FIGHTER_HEIGHT_PX * arenaViewport.scale;
   const fighterFeetOffsetPx = BASE_FIGHTER_FEET_OFFSET_PX * arenaViewport.scale;
   const fallingPlatformMarkup = renderFallingPlatform(snapshot);
+  const arenaClass = isStage491 ? "arena arena--stage-491" : "arena";
   if (!snapshot) {
     const placeholderPlayers = (state.lobby?.players ?? [])
       .map((player, index) => {
@@ -1315,7 +1318,7 @@ function renderMatchScreen(): string {
     return `
       <main class="match-screen" aria-label="Match view">
         <section class="match-stage match-stage--loading" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
-          <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
+          <div class="${arenaClass}" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
             <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
             ${fallingPlatformMarkup}
             ${placeholderPlayers}
@@ -1328,6 +1331,7 @@ function renderMatchScreen(): string {
   }
 
   const playersMarkup = snapshot.players
+    .filter((player) => player.stocks > 0)
     .map((player) => {
       const predicted = localPredictionByPlayerId[player.id];
       const x = worldToScreenX(predicted?.x ?? player.x);
@@ -1404,7 +1408,7 @@ const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
     <main class="match-screen" aria-label="Match view">
       <section class="match-stage" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
         <h1 class="match-title">SUPER SMASH BUCS</h1>
-        <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
+        <div class="${arenaClass}" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
           <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
           ${fallingPlatformMarkup}
           ${respawnPlatformsMarkup}
@@ -1627,7 +1631,11 @@ function updateLocalPrediction(deltaMs: number): void {
       prediction.x += horizontalVelocity;
       prediction.y += prediction.vy;
 
-      if (prediction.y >= 0) {
+      const isStage491 = state.matchStarting?.stageId === "491";
+      const onPlatform =
+        !isStage491 ||
+        (prediction.x >= STAGE_491_PLATFORM_MIN_X && prediction.x <= STAGE_491_PLATFORM_MAX_X);
+      if (prediction.y >= 0 && onPlatform) {
         prediction.y = 0;
         prediction.vy = 0;
         prediction.grounded = true;

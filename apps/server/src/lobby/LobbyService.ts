@@ -49,7 +49,7 @@ export class LobbyService {
 
     const playerId = randomUUID();
     const roomCode = generateRoomCode((candidate) => this.lobbyStore.hasLobby(candidate));
-    const lobby = this.lobbyStore.createLobby(
+    this.lobbyStore.createLobby(
       roomCode,
       createPlayer({
         playerId,
@@ -58,6 +58,8 @@ export class LobbyService {
       }),
       socketId,
     );
+    this.lobbyStore.setStage(roomCode, "491");
+    const lobby = this.lobbyStore.getLobby(roomCode)!;
 
     return {
       ok: true,
