@@ -1085,7 +1085,7 @@ input {
 }
 
 .arena-player--anim-attack .arena-player__sprite {
-  filter: brightness(1.14) sepia(1) saturate(6) hue-rotate(-22deg);
+  filter: brightness(1.16) saturate(1.2) contrast(1.05);
 }
 
 .arena-player--anim-hitstun .arena-player__sprite {
