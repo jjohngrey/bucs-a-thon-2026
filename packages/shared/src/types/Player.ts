@@ -40,6 +40,7 @@ export type PlayerMatchState = {
   respawnPlatformCenterX: number | null;
   respawnPlatformY: number | null;
   respawnPlatformWidth: number;
+  specialChargeMs: number;
   facing: FacingDirection;
   action: PlayerAction;
 };
