@@ -33,6 +33,7 @@ The server currently supports:
   - close-range overlap allowance so stacked fighters can still connect
   - damage application
   - sublinear knockback scaling based on accumulated damage
+  - flatter punch launch angle so jabs send players sideways more than upward
   - flatter kick launch angle than the default punch
   - hitstun state
 - authoritative stock and respawn lifecycle:
