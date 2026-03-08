@@ -53,7 +53,7 @@ const WORLD_MIN_X = -200;
 const WORLD_MAX_X = 1400;
 const BASE_ARENA_WIDTH = 840;
 const BASE_ARENA_HEIGHT = 360;
-const BASE_GROUND_Y_PX = 280;
+const BASE_GROUND_Y_PX = 300;
 const LOCAL_SPEED_PER_TICK = 6;
 const LOCAL_JUMP_VELOCITY = -14;
 const LOCAL_GRAVITY_PER_TICK = 1.2;
@@ -66,8 +66,9 @@ const FALLING_PLATFORM_STABLE_FRAMES = SERVER_TICK_RATE * 5;
 const FALLING_PLATFORM_FALL_FRAMES = SERVER_TICK_RATE * 2;
 const FALLING_PLATFORM_RESET_FRAMES = SERVER_TICK_RATE * 2;
 const BASE_FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
-const BASE_FIGHTER_WIDTH_PX = 52;
-const BASE_FIGHTER_HEIGHT_PX = 118;
+const BASE_FIGHTER_WIDTH_PX = 30;
+const BASE_FIGHTER_HEIGHT_PX = 72;
+const BASE_FIGHTER_FEET_OFFSET_PX = 10;
 
 type CharacterSpriteSet = {
   stand: string;
@@ -177,6 +178,7 @@ let latestSnapshotReceivedAtMs = 0;
 let matchStartingAtMs = 0;
 let previousSnapshot: MatchSnapshot | null = null;
 let localPredictionByPlayerId: Record<string, { x: number; y: number; vy: number; grounded: boolean }> = {};
+let visualActionByPlayerId: Record<string, { action: PlayerAction; holdUntilMs: number }> = {};
 let predictionAccumulatorMs = 0;
 let frameLoopStarted = false;
 let localBypassIntervalId: number | null = null;
@@ -185,12 +187,12 @@ let localBypassServerFrame = 0;
 const LOBBY_MUSIC_SCREENS: Screen[] = ["home", "character-select", "lobby"];
 const lobbyMusic = new Audio("/audio/music/lobby.mp3");
 lobbyMusic.loop = true;
-let lobbyMusicMuted = false;
+let audioMuted = true;
 
 function updateLobbyMusic(): void {
   const shouldPlay = LOBBY_MUSIC_SCREENS.includes(state.screen);
-  lobbyMusic.muted = lobbyMusicMuted;
-  if (shouldPlay && lobbyMusic.paused && !lobbyMusicMuted) {
+  lobbyMusic.muted = audioMuted;
+  if (shouldPlay && lobbyMusic.paused && !audioMuted) {
     lobbyMusic.play().catch(() => {});
   } else if (!shouldPlay && !lobbyMusic.paused) {
     lobbyMusic.pause();
@@ -198,8 +200,8 @@ function updateLobbyMusic(): void {
 }
 
 function renderMuteButton(): string {
-  const label = lobbyMusicMuted ? "Unmute" : "Mute";
-  const src = lobbyMusicMuted ? "/assets/home/volume-mute.png" : "/assets/home/volume.png";
+  const label = audioMuted ? "Unmute" : "Mute";
+  const src = audioMuted ? "/assets/home/volume-mute.png" : "/assets/home/volume.png";
   return `<button type="button" class="mute-btn" data-action="toggle-mute" aria-label="${label}" title="${label}"><img src="${src}" alt="" class="mute-btn-icon" /></button>`;
 }
 
@@ -260,7 +262,7 @@ startInputEmitLoop();
 startFrameLoop();
 
 appRoot.addEventListener("click", async (event) => {
-  if (!audioSystem.isEnabled()) {
+  if (!audioMuted && !audioSystem.isEnabled()) {
     audioSystem.enable();
   }
 
@@ -310,8 +312,14 @@ appRoot.addEventListener("click", async (event) => {
       emitMatchStart();
       break;
     case "toggle-mute":
-      lobbyMusicMuted = !lobbyMusicMuted;
-      lobbyMusic.muted = lobbyMusicMuted;
+      audioMuted = !audioMuted;
+      lobbyMusic.muted = audioMuted;
+      if (audioMuted) {
+        audioSystem.disable();
+      } else {
+        audioSystem.enable();
+        updateLobbyMusic();
+      }
       render();
       break;
     default:
@@ -442,6 +450,7 @@ function resetServerMatchRuntime(options?: { keepResult?: boolean }): void {
   latestSnapshotReceivedAtMs = 0;
   previousSnapshot = null;
   localPredictionByPlayerId = {};
+  visualActionByPlayerId = {};
   predictionAccumulatorMs = 0;
   resetPressedInputs();
 
@@ -721,6 +730,7 @@ function startLocalBypassMatch(): void {
       grounded: true,
     },
   };
+  visualActionByPlayerId = {};
   render();
 
   const tickMs = Math.round(1000 / SERVER_TICK_RATE);
@@ -953,6 +963,7 @@ function attachSocketListeners(activeSocket: Socket): void {
     state.errorMessage = "";
     latestSnapshotReceivedAtMs = performance.now();
     playHitSfxForSnapshotDelta(previousSnapshot, payload.snapshot);
+    updateVisualActionHolds(payload.snapshot);
 
     const nextPrediction: Record<string, { x: number; y: number; vy: number; grounded: boolean }> = {};
     for (const player of payload.snapshot.players) {
@@ -1222,6 +1233,7 @@ function renderMatchScreen(): string {
   const arenaViewport = getArenaViewport();
   const fighterWidthPx = BASE_FIGHTER_WIDTH_PX * arenaViewport.scale;
   const fighterHeightPx = BASE_FIGHTER_HEIGHT_PX * arenaViewport.scale;
+  const fighterFeetOffsetPx = BASE_FIGHTER_FEET_OFFSET_PX * arenaViewport.scale;
   const fallingPlatformMarkup = renderFallingPlatform(snapshot);
   if (!snapshot) {
     const placeholderPlayers = (state.lobby?.players ?? [])
@@ -1241,7 +1253,7 @@ function renderMatchScreen(): string {
       <main class="match-screen" aria-label="Match view">
         <section class="match-stage match-stage--loading" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
           <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
-            <div class="arena-floor"></div>
+            <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
             ${fallingPlatformMarkup}
             ${placeholderPlayers}
           </div>
@@ -1257,11 +1269,12 @@ function renderMatchScreen(): string {
       const predicted = localPredictionByPlayerId[player.id];
       const x = worldToScreenX(predicted?.x ?? player.x);
       const y = worldToScreenY(predicted?.y ?? player.y);
-      const actionState = mapActionToAnimationState(player.action);
+      const displayedAction = getDisplayedAction(player.id, player.action);
+      const actionState = mapActionToAnimationState(displayedAction);
       const facingScale = player.facing === "left" ? -1 : 1;
       const koClass = player.isOutOfPlay ? "arena-player--ko" : "";
       const invulnClass = player.respawnInvulnerabilityMs > 0 ? "arena-player--invulnerable" : "";
-      const spriteUrl = getSpriteUrlForPlayer(player.characterId, player.action);
+      const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
 
       return `
         <div
@@ -1273,7 +1286,7 @@ function renderMatchScreen(): string {
             src="${spriteUrl}"
             alt="${escapeHtml(player.displayName)} ${actionState}"
             onerror="this.style.display='none'"
-            style="transform: scaleX(${facingScale});"
+            style="transform: translateY(${fighterFeetOffsetPx.toFixed(1)}px) scaleX(${facingScale});"
           />
         </div>
       `;
@@ -1326,7 +1339,7 @@ function renderMatchScreen(): string {
     <main class="match-screen" aria-label="Match view">
       <section class="match-stage" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
         <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
-          <div class="arena-floor"></div>
+          <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
           ${fallingPlatformMarkup}
           ${respawnPlatformsMarkup}
           ${playersMarkup}
@@ -1571,6 +1584,44 @@ function mapActionToAnimationState(action: PlayerAction): string {
       return "ko";
     default:
       return "idle";
+  }
+}
+
+function getDisplayedAction(playerId: string, serverAction: PlayerAction): PlayerAction {
+  const nowMs = performance.now();
+  const heldAction = visualActionByPlayerId[playerId];
+  if (heldAction && heldAction.holdUntilMs > nowMs) {
+    return heldAction.action;
+  }
+  if (heldAction) {
+    delete visualActionByPlayerId[playerId];
+  }
+  return serverAction;
+}
+
+function updateVisualActionHolds(snapshot: MatchSnapshot): void {
+  const nowMs = performance.now();
+  for (const player of snapshot.players) {
+    const holdMs = getActionHoldMs(player.action);
+    if (holdMs <= 0) {
+      continue;
+    }
+
+    visualActionByPlayerId[player.id] = {
+      action: player.action,
+      holdUntilMs: nowMs + holdMs,
+    };
+  }
+}
+
+function getActionHoldMs(action: PlayerAction): number {
+  switch (action) {
+    case "kick":
+      return 180;
+    case "attack":
+      return 110;
+    default:
+      return 0;
   }
 }
 
