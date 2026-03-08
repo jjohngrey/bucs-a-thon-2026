@@ -34,6 +34,8 @@ type AppState = {
   matchStarting: MatchStartingPayload | null;
   matchSnapshot: MatchSnapshot | null;
   matchEnded: MatchEndedPayload["summary"] | null;
+  /** Display names for match participants, captured when match ends so they persist if players leave. */
+  resultsPlayerNames: Record<string, string> | null;
   inputFrame: number;
   statusMessage: string;
   errorMessage: string;
@@ -225,6 +227,7 @@ const state: AppState = {
   matchStarting: null,
   matchSnapshot: null,
   matchEnded: null,
+  resultsPlayerNames: null,
   inputFrame: 0,
   statusMessage: "",
   errorMessage: "",
@@ -475,6 +478,7 @@ function resetServerMatchRuntime(options?: { keepResult?: boolean }): void {
 
   if (!options?.keepResult) {
     state.matchEnded = null;
+    state.resultsPlayerNames = null;
   }
 }
 
@@ -1021,6 +1025,14 @@ function attachSocketListeners(activeSocket: Socket): void {
     if (payload.roomCode !== state.roomCode) {
       return;
     }
+    const names: Record<string, string> = {};
+    for (const p of state.matchSnapshot?.players ?? []) {
+      names[p.id] = p.displayName;
+    }
+    for (const p of state.lobby?.players ?? []) {
+      if (p.displayName) names[p.id] = p.displayName;
+    }
+    state.resultsPlayerNames = Object.keys(names).length ? names : null;
     resetServerMatchRuntime({ keepResult: true });
     state.matchEnded = payload.summary;
     state.screen = "results";
@@ -1483,17 +1495,15 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
 function renderResultsScreen(): string {
   const summary = state.matchEnded;
   const isHost = Boolean(state.lobby && state.playerId && state.lobby.hostPlayerId === state.playerId);
+  const names = state.resultsPlayerNames;
+  const getName = (id: string): string =>
+    names?.[id] ?? state.lobby?.players?.find((p) => p.id === id)?.displayName ?? id;
   const winnerId = summary?.winnerPlayerId ?? null;
-  const winnerPlayer = winnerId && state.lobby?.players
-    ? state.lobby.players.find((p) => p.id === winnerId)
-    : null;
-  const winnerDisplayName = winnerPlayer?.displayName ?? winnerId ?? "—";
+  const winnerDisplayName = winnerId ? getName(winnerId) : "—";
   const isYouWinner = winnerId === state.playerId;
   const isYouLoser = Boolean(winnerId && state.playerId && winnerId !== state.playerId);
   const eliminatedIds = summary?.eliminatedPlayerIds ?? [];
-  const eliminatedNames = eliminatedIds
-    .map((id) => state.lobby?.players?.find((p) => p.id === id)?.displayName ?? id)
-    .join(", ");
+  const eliminatedNames = eliminatedIds.map((id) => getName(id)).join(", ");
   const badgeText = isYouLoser ? "DEFEAT" : "VICTORY";
   const outcomeLine = isYouWinner
     ? '<p class="results-outcome results-outcome--win">YOU WIN!</p>'
