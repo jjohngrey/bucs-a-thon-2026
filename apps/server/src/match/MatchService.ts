@@ -92,6 +92,7 @@ const DEFAULT_COUNTDOWN_MS = 3000;
 const PLAYER_SPEED_PER_TICK = 20;
 const MAX_FALL_SPEED_PER_TICK = 12;
 const TICK_DURATION_MS = 1000 / SERVER_TICK_RATE;
+const RESPAWN_HOVER_MS = 1000;
 
 export class MatchService {
   private readonly pendingStartTimers = new Map<string, NodeJS.Timeout>();
@@ -479,6 +480,27 @@ function advanceSnapshot(
     }
 
     const nextInvulnerabilityMs = Math.max(0, player.respawnInvulnerabilityMs - TICK_DURATION_MS);
+    const hoverWindowMs = Math.min(RESPAWN_HOVER_MS, session.rules.respawnInvulnerabilityMs);
+    const hoverThresholdMs = session.rules.respawnInvulnerabilityMs - hoverWindowMs;
+    const hasRespawnPlatform = player.respawnPlatformCenterX !== null && player.respawnPlatformY !== null;
+    if (hasRespawnPlatform && player.respawnInvulnerabilityMs > 0) {
+      const respawnCenterX = player.respawnPlatformCenterX;
+      const respawnY = player.respawnPlatformY;
+      const shouldHoverDuringRespawn = player.respawnInvulnerabilityMs > hoverThresholdMs;
+      return {
+        ...player,
+        x: respawnCenterX!,
+        y: respawnY!,
+        vx: 0,
+        vy: 0,
+        grounded: !shouldHoverDuringRespawn,
+        respawnInvulnerabilityMs: nextInvulnerabilityMs,
+        respawnPlatformCenterX: nextInvulnerabilityMs > 0 ? respawnCenterX : null,
+        respawnPlatformY: nextInvulnerabilityMs > 0 ? respawnY : null,
+        respawnPlatformWidth: nextInvulnerabilityMs > 0 ? player.respawnPlatformWidth : 0,
+        action: shouldHoverDuringRespawn ? PLAYER_ACTIONS.RESPAWN : PLAYER_ACTIONS.IDLE,
+      };
+    }
     const input = latestInputsByPlayerId[player.id];
     const inHitstun = (hitstunTicksByPlayerId[player.id] ?? 0) > 0;
     const horizontalVelocityFromInput =
