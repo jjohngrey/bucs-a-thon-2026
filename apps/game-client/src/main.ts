@@ -1,6 +1,7 @@
 import "./style.css";
 import {
   CLIENT_EVENTS,
+  DEFAULT_SPECIAL_CHARGE_MAX_MS,
   SERVER_EVENTS,
   SERVER_TICK_RATE,
   type LobbyState,
@@ -49,6 +50,12 @@ const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostn
 const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
 const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
+const STAGE_CHOICES = [
+  { id: "rooftop", label: "Rooftop" },
+  { id: "bucs", label: "Bucs" },
+  { id: "491", label: "491" },
+  { id: "arena", label: "Arena" },
+] as const;
 const WORLD_MIN_X = -200;
 const WORLD_MAX_X = 1400;
 const BASE_ARENA_WIDTH = 840;
@@ -305,6 +312,18 @@ appRoot.addEventListener("click", async (event) => {
     case "leave-lobby":
       await leaveAndDisconnectToHome();
       break;
+    case "select-stage": {
+      const stageId = actionElement.dataset.stageId;
+      if (stageId && state.lobby && state.roomCode && state.lobby.hostPlayerId === state.playerId) {
+        socket?.emit(CLIENT_EVENTS.MATCH_SELECT_STAGE, {
+          roomCode: state.roomCode,
+          stageId,
+        });
+        state.errorMessage = "";
+      }
+      render();
+      break;
+    }
     case "return-to-lobby":
       await handleReturnToLobby();
       break;
@@ -688,6 +707,7 @@ function startLocalBypassMatch(): void {
         respawnPlatformCenterX: null,
         respawnPlatformY: null,
         respawnPlatformWidth: 0,
+        specialChargeMs: 0,
         facing: "right",
         action: "idle",
       },
@@ -708,6 +728,7 @@ function startLocalBypassMatch(): void {
         respawnPlatformCenterX: null,
         respawnPlatformY: null,
         respawnPlatformWidth: 0,
+        specialChargeMs: 0,
         facing: "left",
         action: "idle",
       },
@@ -758,14 +779,17 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
     return previous;
   }
 
+  const tickMs = 1000 / SERVER_TICK_RATE;
   const horizontalVelocity =
-    pressedInput.left && !pressedInput.right
+    pressedInput.special
+      ? 0
+      : pressedInput.left && !pressedInput.right
       ? -LOCAL_SPEED_PER_TICK
       : pressedInput.right && !pressedInput.left
         ? LOCAL_SPEED_PER_TICK
         : 0;
 
-  const jumped = pressedInput.jump && me.grounded;
+  const jumped = !pressedInput.special && pressedInput.jump && me.grounded;
   const verticalVelocity = jumped
     ? LOCAL_JUMP_VELOCITY
     : Math.min(me.vy + LOCAL_GRAVITY_PER_TICK, LOCAL_MAX_FALL_SPEED_PER_TICK);
@@ -774,7 +798,12 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
   const resolvedY = grounded ? 0 : nextY;
   const resolvedVy = grounded ? 0 : verticalVelocity;
   const facing = horizontalVelocity < 0 ? "left" : horizontalVelocity > 0 ? "right" : me.facing;
-  const action = pressedInput.kick
+  const specialChargeMs = pressedInput.special
+    ? Math.min(DEFAULT_SPECIAL_CHARGE_MAX_MS, me.specialChargeMs + tickMs)
+    : 0;
+  const action = pressedInput.special
+    ? "attack"
+    : pressedInput.kick
     ? "kick"
     : pressedInput.attack
       ? "attack"
@@ -794,6 +823,7 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
       vx: horizontalVelocity,
       vy: resolvedVy,
       grounded,
+      specialChargeMs,
       facing,
       action,
     },
@@ -801,12 +831,14 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
 
   if (bot) {
     const botHorizontalVelocity =
-      secondaryPressedInput.left && !secondaryPressedInput.right
+      secondaryPressedInput.special
+        ? 0
+        : secondaryPressedInput.left && !secondaryPressedInput.right
         ? -LOCAL_SPEED_PER_TICK
         : secondaryPressedInput.right && !secondaryPressedInput.left
           ? LOCAL_SPEED_PER_TICK
           : 0;
-    const botJumped = secondaryPressedInput.jump && bot.grounded;
+    const botJumped = !secondaryPressedInput.special && secondaryPressedInput.jump && bot.grounded;
     const botVerticalVelocity = botJumped
       ? LOCAL_JUMP_VELOCITY
       : Math.min(bot.vy + LOCAL_GRAVITY_PER_TICK, LOCAL_MAX_FALL_SPEED_PER_TICK);
@@ -815,7 +847,12 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
     const botResolvedY = botGrounded ? 0 : botNextY;
     const botResolvedVy = botGrounded ? 0 : botVerticalVelocity;
     const botFacing = botHorizontalVelocity < 0 ? "left" : botHorizontalVelocity > 0 ? "right" : bot.facing;
-    const botAction = secondaryPressedInput.attack
+    const botSpecialChargeMs = secondaryPressedInput.special
+      ? Math.min(DEFAULT_SPECIAL_CHARGE_MAX_MS, bot.specialChargeMs + tickMs)
+      : 0;
+    const botAction = secondaryPressedInput.special
+      ? "attack"
+      : secondaryPressedInput.attack
       ? "attack"
       : botGrounded
         ? botHorizontalVelocity === 0
@@ -832,6 +869,7 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
       vx: botHorizontalVelocity,
       vy: botResolvedVy,
       grounded: botGrounded,
+      specialChargeMs: botSpecialChargeMs,
       facing: botFacing,
       action: botAction,
     });
@@ -1186,6 +1224,14 @@ function renderLobbyScreen(): string {
       }).join("")
     : "<li class=\"lobby-player lobby-player--empty\">Waiting for players...</li>";
 
+  const selectedStageId = lobby?.selectedStageId ?? STAGE_CHOICES[0].id;
+  const mapOptions = STAGE_CHOICES.map(
+    (stage) => `
+      <button type="button" class="lobby-map-option ${selectedStageId === stage.id ? "lobby-map-option--selected" : ""}" data-action="select-stage" data-stage-id="${stage.id}" ${isHost ? "" : "disabled"} title="${escapeHtml(stage.label)}">
+        <span class="lobby-map-option-label">${escapeHtml(stage.label)}</span>
+      </button>`,
+  ).join("");
+
   return `
     ${renderMuteButton()}
     <main class="shell lobby-screen">
@@ -1194,6 +1240,11 @@ function renderLobbyScreen(): string {
         <div class="lobby-room-code">
           <span class="lobby-room-code-label">Room Code</span>
           <span class="lobby-room-code-value">${escapeHtml(state.roomCode)}</span>
+        </div>
+
+        <div class="lobby-map-selector">
+          <span class="lobby-map-selector-label">Map</span>
+          <div class="lobby-map-options">${mapOptions}</div>
         </div>
 
         <ul class="lobby-player-list">${playerItems}</ul>
@@ -1274,8 +1325,10 @@ function renderMatchScreen(): string {
       const facingScale = player.facing === "left" ? -1 : 1;
       const koClass = player.isOutOfPlay ? "arena-player--ko" : "";
       const invulnClass = player.respawnInvulnerabilityMs > 0 ? "arena-player--invulnerable" : "";
-      const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
-
+const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
+      const specialChargeRatio = getSpecialChargeRatio(player.specialChargeMs);
+      const spriteFilter = getChargeSpriteFilter(specialChargeRatio);
+      const spriteStyle = `transform: scaleX(${facingScale});${spriteFilter ? `filter:${spriteFilter};` : ""}`;
       return `
         <div
           class="arena-player ${koClass} ${invulnClass} arena-player--anim-${actionState}"
@@ -1689,6 +1742,24 @@ function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): strin
     default:
       return sprites.stand;
   }
+}
+
+function getSpecialChargeRatio(specialChargeMs: number): number {
+  if (DEFAULT_SPECIAL_CHARGE_MAX_MS <= 0) {
+    return 0;
+  }
+  return clamp(specialChargeMs / DEFAULT_SPECIAL_CHARGE_MAX_MS, 0, 1);
+}
+
+function getChargeSpriteFilter(chargeRatio: number): string {
+  if (chargeRatio <= 0) {
+    return "";
+  }
+  const sepia = (0.18 + chargeRatio * 0.42).toFixed(2);
+  const saturate = (1 + chargeRatio * 1.8).toFixed(2);
+  const hueRotate = (-6 - chargeRatio * 12).toFixed(1);
+  const brightness = (1 - chargeRatio * 0.08).toFixed(2);
+  return `sepia(${sepia}) saturate(${saturate}) hue-rotate(${hueRotate}deg) brightness(${brightness})`;
 }
 
 function worldToScreenX(x: number): number {

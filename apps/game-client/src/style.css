@@ -510,6 +510,62 @@ input {
   color: var(--retro-glow);
 }
 
+.lobby-map-selector {
+  margin-bottom: 20px;
+}
+
+.lobby-map-selector-label {
+  display: block;
+  font-family: "Orbitron", "Share Tech Mono", sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--retro-muted);
+  margin-bottom: 10px;
+}
+
+.lobby-map-options {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.lobby-map-option {
+  font-family: "Share Tech Mono", "Orbitron", sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 12px 8px;
+  background: var(--retro-bg);
+  color: var(--retro-panel);
+  border: 2px solid var(--retro-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+.lobby-map-option:hover:not(:disabled) {
+  background: rgba(0, 34, 70, 0.9);
+  border-color: var(--retro-glow);
+  transform: translateY(-1px);
+}
+
+.lobby-map-option--selected {
+  background: rgba(232, 168, 61, 0.25);
+  border-color: var(--retro-border);
+  color: var(--retro-panel);
+}
+
+.lobby-map-option:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.lobby-map-option-label {
+  display: block;
+  text-align: center;
+}
+
 .lobby-avatar {
   object-fit: contain;
   object-position: center;
