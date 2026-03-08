@@ -11,6 +11,19 @@ import type {
 } from "@bucs/shared";
 import {
   DEFAULT_MATCH_RULES,
+  DEFAULT_SPECIAL_BASE_KNOCKBACK,
+  DEFAULT_SPECIAL_CHARGE_MAX_MS,
+  DEFAULT_SPECIAL_COOLDOWN_TICKS,
+  DEFAULT_SPECIAL_DAMAGE,
+  DEFAULT_SPECIAL_HEIGHT,
+  DEFAULT_SPECIAL_HITSTUN_TICKS,
+  DEFAULT_SPECIAL_KNOCKBACK_GROWTH,
+  DEFAULT_SPECIAL_LAUNCH_ANGLE_DEGREES,
+  DEFAULT_SPECIAL_MAX_DAMAGE_MULTIPLIER,
+  DEFAULT_SPECIAL_MAX_KNOCKBACK_MULTIPLIER,
+  DEFAULT_SPECIAL_MIN_DAMAGE_MULTIPLIER,
+  DEFAULT_SPECIAL_MIN_KNOCKBACK_MULTIPLIER,
+  DEFAULT_SPECIAL_RANGE,
   DEFAULT_STAGE,
   DEFAULT_ATTACK_DAMAGE,
   DEFAULT_ATTACK_BASE_KNOCKBACK,
@@ -92,7 +105,8 @@ const DEFAULT_COUNTDOWN_MS = 3000;
 const PLAYER_SPEED_PER_TICK = 20;
 const MAX_FALL_SPEED_PER_TICK = 12;
 const TICK_DURATION_MS = 1000 / SERVER_TICK_RATE;
-const RESPAWN_HOVER_MS = 1000;
+const MAX_SPECIAL_CHARGE_TICKS = Math.round(DEFAULT_SPECIAL_CHARGE_MAX_MS / TICK_DURATION_MS);
+
 
 export class MatchService {
   private readonly pendingStartTimers = new Map<string, NodeJS.Timeout>();
@@ -299,6 +313,7 @@ export class MatchService {
         runtimeState.previousInputsByPlayerId,
         runtimeState.hitstunTicksByPlayerId,
         runtimeState.attackCooldownTicksByPlayerId,
+        runtimeState.specialChargeTicksByPlayerId,
         runtimeState.session,
       );
 
@@ -445,11 +460,13 @@ function advanceSnapshot(
   >,
   hitstunTicksByPlayerId: Record<string, number>,
   attackCooldownTicksByPlayerId: Record<string, number>,
+  specialChargeTicksByPlayerId: Record<string, number>,
   session: MatchSession,
 ): MatchSnapshot {
   const nextPlayers: PlayerMatchState[] = previous.players.map((player) => {
     const isEliminated = player.stocks <= 0;
     if (isEliminated) {
+      specialChargeTicksByPlayerId[player.id] = 0;
       return {
         ...player,
         isOutOfPlay: true,
@@ -457,11 +474,13 @@ function advanceSnapshot(
         vx: 0,
         vy: Math.max(player.vy, DEFAULT_KO_FALL_SPEED_PER_TICK),
         y: player.y + Math.max(player.vy, DEFAULT_KO_FALL_SPEED_PER_TICK),
+        specialChargeMs: 0,
         action: PLAYER_ACTIONS.KO,
       };
     }
 
     if (player.isOutOfPlay) {
+      specialChargeTicksByPlayerId[player.id] = 0;
       const nextRespawnTimerMs = Math.max(0, player.respawnTimerMs - TICK_DURATION_MS);
       if (nextRespawnTimerMs > 0) {
         const fallVelocity = Math.max(player.vy, DEFAULT_KO_FALL_SPEED_PER_TICK);
@@ -472,6 +491,7 @@ function advanceSnapshot(
           vy: fallVelocity,
           y: player.y + fallVelocity,
           respawnTimerMs: nextRespawnTimerMs,
+          specialChargeMs: 0,
           action: PLAYER_ACTIONS.KO,
         };
       }
@@ -503,8 +523,13 @@ function advanceSnapshot(
     }
     const input = latestInputsByPlayerId[player.id];
     const inHitstun = (hitstunTicksByPlayerId[player.id] ?? 0) > 0;
+    const attackOnCooldown = (attackCooldownTicksByPlayerId[player.id] ?? 0) > 0;
+    const specialChargeTicks = specialChargeTicksByPlayerId[player.id] ?? 0;
+    const chargingSpecial = Boolean(input?.special) && !inHitstun && (specialChargeTicks > 0 || !attackOnCooldown);
     const horizontalVelocityFromInput =
-      input?.left && !input.right
+      chargingSpecial
+        ? 0
+        : input?.left && !input.right
         ? -PLAYER_SPEED_PER_TICK
         : input?.right && !input.left
           ? PLAYER_SPEED_PER_TICK
@@ -514,7 +539,7 @@ function advanceSnapshot(
         ? 0
         : player.vx * 0.85
       : horizontalVelocityFromInput;
-    const jumped = Boolean(input?.jump && player.grounded && !inHitstun);
+    const jumped = Boolean(input?.jump && player.grounded && !inHitstun && !chargingSpecial);
     const verticalVelocity = jumped ? DEFAULT_JUMP_VELOCITY : Math.min(player.vy + DEFAULT_GRAVITY_PER_TICK, MAX_FALL_SPEED_PER_TICK);
     const nextY = player.y + verticalVelocity;
     const grounded = nextY >= session.stage.floorY;
@@ -528,6 +553,8 @@ function advanceSnapshot(
           : player.facing;
     const action: PlayerMatchState["action"] = inHitstun
       ? PLAYER_ACTIONS.HITSTUN
+      : chargingSpecial
+        ? PLAYER_ACTIONS.ATTACK
       : grounded
         ? horizontalVelocity === 0
           ? PLAYER_ACTIONS.IDLE
@@ -547,6 +574,7 @@ function advanceSnapshot(
       respawnPlatformCenterX: nextInvulnerabilityMs > 0 ? player.respawnPlatformCenterX : null,
       respawnPlatformY: nextInvulnerabilityMs > 0 ? player.respawnPlatformY : null,
       respawnPlatformWidth: nextInvulnerabilityMs > 0 ? player.respawnPlatformWidth : 0,
+      specialChargeMs: ticksToMs(specialChargeTicks),
       facing,
       action,
     };
@@ -566,19 +594,40 @@ function advanceSnapshot(
   for (const attacker of nextPlayers) {
     const currentInput = latestInputsByPlayerId[attacker.id];
     const previousInput = previousInputsByPlayerId[attacker.id];
-    const attackTriggered = Boolean(currentInput?.attack && !previousInput?.attack);
-    const kickTriggered = Boolean(currentInput?.kick && !previousInput?.kick);
-    const specialTriggered = Boolean(currentInput?.special && !previousInput?.special);
     const attackOnCooldown = (attackCooldownTicksByPlayerId[attacker.id] ?? 0) > 0;
-    if ((!attackTriggered && !kickTriggered && !specialTriggered) || attacker.action === PLAYER_ACTIONS.HITSTUN) {
-      continue;
-    }
-    if (attackOnCooldown && (attackTriggered || kickTriggered)) {
+    const specialHeld = Boolean(currentInput?.special);
+    const specialReleased = Boolean(previousInput?.special && !currentInput?.special);
+    let specialChargeTicks = specialChargeTicksByPlayerId[attacker.id] ?? 0;
+    if (attacker.action === PLAYER_ACTIONS.HITSTUN || attacker.isOutOfPlay || attacker.stocks <= 0) {
+      specialChargeTicksByPlayerId[attacker.id] = 0;
+      attacker.specialChargeMs = 0;
       continue;
     }
 
-    // `special` input is reserved for future behavior and is intentionally a no-op for now.
-    if (specialTriggered && !attackTriggered && !kickTriggered) {
+    if (specialHeld) {
+      if (specialChargeTicks > 0 || !attackOnCooldown) {
+        specialChargeTicks = Math.min(MAX_SPECIAL_CHARGE_TICKS, specialChargeTicks + 1);
+        specialChargeTicksByPlayerId[attacker.id] = specialChargeTicks;
+        attacker.specialChargeMs = ticksToMs(specialChargeTicks);
+        attacker.vx = 0;
+      } else {
+        specialChargeTicksByPlayerId[attacker.id] = 0;
+        attacker.specialChargeMs = 0;
+      }
+      continue;
+    }
+
+    const specialChargeRatio = clamp01(specialChargeTicks / Math.max(1, MAX_SPECIAL_CHARGE_TICKS));
+    specialChargeTicksByPlayerId[attacker.id] = 0;
+    attacker.specialChargeMs = 0;
+
+    const attackTriggered = Boolean(currentInput?.attack && !previousInput?.attack);
+    const kickTriggered = Boolean(currentInput?.kick && !previousInput?.kick);
+    const specialTriggered = specialReleased && specialChargeTicks > 0;
+    if (!attackTriggered && !kickTriggered && !specialTriggered) {
+      continue;
+    }
+    if (attackOnCooldown) {
       continue;
     }
 
@@ -594,6 +643,30 @@ function advanceSnapshot(
           knockbackGrowth: DEFAULT_KICK_KNOCKBACK_GROWTH,
           hitstunTicks: DEFAULT_KICK_HITSTUN_TICKS,
         }
+      : specialTriggered
+        ? (() => {
+          const damageMultiplier = lerp(
+            DEFAULT_SPECIAL_MIN_DAMAGE_MULTIPLIER,
+            DEFAULT_SPECIAL_MAX_DAMAGE_MULTIPLIER,
+            specialChargeRatio,
+          );
+          const knockbackMultiplier = lerp(
+            DEFAULT_SPECIAL_MIN_KNOCKBACK_MULTIPLIER,
+            DEFAULT_SPECIAL_MAX_KNOCKBACK_MULTIPLIER,
+            specialChargeRatio,
+          );
+          return {
+            action: PLAYER_ACTIONS.ATTACK,
+            cooldownTicks: DEFAULT_SPECIAL_COOLDOWN_TICKS,
+            range: DEFAULT_SPECIAL_RANGE,
+            height: DEFAULT_SPECIAL_HEIGHT,
+            damage: DEFAULT_SPECIAL_DAMAGE * damageMultiplier,
+            launchAngleDegrees: DEFAULT_SPECIAL_LAUNCH_ANGLE_DEGREES,
+            baseKnockback: DEFAULT_SPECIAL_BASE_KNOCKBACK * knockbackMultiplier,
+            knockbackGrowth: DEFAULT_SPECIAL_KNOCKBACK_GROWTH * knockbackMultiplier,
+            hitstunTicks: DEFAULT_SPECIAL_HITSTUN_TICKS,
+          };
+        })()
       : {
           action: PLAYER_ACTIONS.ATTACK,
           cooldownTicks: DEFAULT_ATTACK_COOLDOWN_TICKS,
@@ -664,10 +737,12 @@ function advanceSnapshot(
     player.respawnPlatformCenterX = null;
     player.respawnPlatformY = null;
     player.respawnPlatformWidth = 0;
+    player.specialChargeMs = 0;
     player.action = PLAYER_ACTIONS.KO;
     player.vx = 0;
     player.vy = Math.max(player.vy, DEFAULT_KO_FALL_SPEED_PER_TICK);
     player.grounded = false;
+    specialChargeTicksByPlayerId[player.id] = 0;
   }
 
   return {
@@ -704,6 +779,7 @@ function createInitialPlayerState(
     respawnPlatformCenterX: null,
     respawnPlatformY: null,
     respawnPlatformWidth: 0,
+    specialChargeMs: 0,
     facing: index % 2 === 0 ? "right" : "left",
     action: PLAYER_ACTIONS.IDLE,
   };
@@ -727,6 +803,7 @@ function createRespawnedPlayerState(player: PlayerMatchState, session: MatchSess
     respawnPlatformCenterX: respawnX,
     respawnPlatformY: respawnY,
     respawnPlatformWidth: session.rules.respawnPlatformWidth,
+    specialChargeMs: 0,
     action: PLAYER_ACTIONS.RESPAWN,
   };
 }
@@ -765,6 +842,18 @@ function getAutoMatchSummary(snapshot: MatchSnapshot): MatchSummary | null {
     winnerPlayerId,
     eliminatedPlayerIds,
   };
+}
+
+function ticksToMs(ticks: number): number {
+  return Math.max(0, Math.min(DEFAULT_SPECIAL_CHARGE_MAX_MS, ticks * TICK_DURATION_MS));
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function lerp(min: number, max: number, ratio: number): number {
+  return min + (max - min) * clamp01(ratio);
 }
 
 function calculateKnockbackMagnitude(

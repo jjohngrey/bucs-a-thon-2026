@@ -20,6 +20,7 @@ export type MatchRuntimeState = {
   previousInputsByPlayerId: Record<string, MatchInputPayload["pressed"]>;
   hitstunTicksByPlayerId: Record<string, number>;
   attackCooldownTicksByPlayerId: Record<string, number>;
+  specialChargeTicksByPlayerId: Record<string, number>;
   latestSnapshot: MatchSnapshot | null;
 };
 
