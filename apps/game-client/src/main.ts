@@ -54,7 +54,7 @@ const ROOM_CODE_LENGTH = 6;
 const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
 const STAGE_CHOICES = [
   { id: "491", label: "491" },
-  { id: "bucs", label: "Bucs" },
+  { id: "bucs", label: "BUCS" },
 ] as const;
 const WORLD_MIN_X = -200;
 const WORLD_MAX_X = 1400;
@@ -198,6 +198,10 @@ const lobbyMusic = new Audio("/audio/music/lobby.mp3");
 lobbyMusic.loop = true;
 let audioMuted = true;
 
+const fightMusic = new Audio("/audio/music/fight.mp3");
+fightMusic.loop = true;
+fightMusic.volume = 0.25;
+
 function updateLobbyMusic(): void {
   const shouldPlay = LOBBY_MUSIC_SCREENS.includes(state.screen);
   lobbyMusic.muted = audioMuted;
@@ -205,6 +209,16 @@ function updateLobbyMusic(): void {
     lobbyMusic.play().catch(() => {});
   } else if (!shouldPlay && !lobbyMusic.paused) {
     lobbyMusic.pause();
+  }
+}
+
+function updateFightMusic(): void {
+  const shouldPlay = state.screen === "countdown" || state.screen === "match";
+  fightMusic.muted = audioMuted;
+  if (shouldPlay && fightMusic.paused && !audioMuted) {
+    fightMusic.play().catch(() => {});
+  } else if (!shouldPlay && !fightMusic.paused) {
+    fightMusic.pause();
   }
 }
 
@@ -251,19 +265,21 @@ const secondaryPressedInput: PressedInput = {
   special: false,
 };
 
-const HIT_SFX_BY_CHARACTER: Record<string, string> = {
-  "fighter-1": "/audio/voice-memos/jay/hit.m4a",
-  "fighter-2": "/audio/voice-memos/jia/hit.m4a",
-  "fighter-3": "/audio/voice-memos/jay/hit.m4a",
-  "fighter-4": "/audio/voice-memos/jia/hit.m4a",
-  jay: "/audio/voice-memos/jay/hit.m4a",
-  jia: "/audio/voice-memos/jia/hit.m4a",
-  ryan: "/audio/voice-memos/jay/hit.m4a",
-  fahim: "/audio/voice-memos/jia/hit.m4a",
+const VOICE_MEMOS_BY_CHARACTER: Record<string, { hit: string; ko: string; win: string }> = {
+  "fighter-1": { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  "fighter-2": { hit: "/audio/voice-memos/jia/hit.m4a", ko: "/audio/voice-memos/jia/ko.m4a", win: "/audio/voice-memos/jia/win.m4a" },
+  "fighter-3": { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  "fighter-4": { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  jay: { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  jia: { hit: "/audio/voice-memos/jia/hit.m4a", ko: "/audio/voice-memos/jia/ko.m4a", win: "/audio/voice-memos/jia/win.m4a" },
+  ryan: { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  fahim: { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
 };
 
-for (const [characterId, url] of Object.entries(HIT_SFX_BY_CHARACTER)) {
-  audioSystem.registerClip(`hit:${characterId}`, { url, volume: 0.9, poolSize: 3 });
+for (const [characterId, urls] of Object.entries(VOICE_MEMOS_BY_CHARACTER)) {
+  audioSystem.registerClip(`hit:${characterId}`, { url: urls.hit, volume: 0.9, poolSize: 3 });
+  audioSystem.registerClip(`ko:${characterId}`, { url: urls.ko, volume: 0.9, poolSize: 1 });
+  audioSystem.registerClip(`win:${characterId}`, { url: urls.win, volume: 0.9, poolSize: 1 });
 }
 
 render();
@@ -274,6 +290,10 @@ startFrameLoop();
 appRoot.addEventListener("click", async (event) => {
   if (!audioMuted && !audioSystem.isEnabled()) {
     audioSystem.enable();
+  }
+  if (!audioMuted && (state.screen === "countdown" || state.screen === "match") && fightMusic.paused) {
+    lobbyMusic.pause();
+    fightMusic.play().catch(() => {});
   }
 
   const target = event.target as HTMLElement | null;
@@ -286,6 +306,11 @@ appRoot.addEventListener("click", async (event) => {
 
   switch (action) {
     case "quick-test-match":
+      if (!audioMuted) {
+        lobbyMusic.pause();
+        fightMusic.currentTime = 0;
+        fightMusic.play().catch(() => {});
+      }
       startLocalBypassMatch();
       break;
     case "create-lobby":
@@ -331,16 +356,28 @@ appRoot.addEventListener("click", async (event) => {
       await handleReturnToLobby();
       break;
     case "start-match":
+      if (!audioMuted) {
+        lobbyMusic.pause();
+        fightMusic.currentTime = 0;
+        fightMusic.play().catch(() => {});
+      }
       emitMatchStart();
       break;
     case "toggle-mute":
       audioMuted = !audioMuted;
       lobbyMusic.muted = audioMuted;
+      fightMusic.muted = audioMuted;
       if (audioMuted) {
         audioSystem.disable();
       } else {
         audioSystem.enable();
         updateLobbyMusic();
+        updateFightMusic();
+        if (state.screen === "countdown" || state.screen === "match") {
+          lobbyMusic.pause();
+          fightMusic.currentTime = 0;
+          fightMusic.play().catch(() => {});
+        }
       }
       render();
       break;
@@ -1033,6 +1070,15 @@ function attachSocketListeners(activeSocket: Socket): void {
       if (p.displayName) names[p.id] = p.displayName;
     }
     state.resultsPlayerNames = Object.keys(names).length ? names : null;
+    const winnerId = payload.summary?.winnerPlayerId ?? null;
+    if (winnerId && state.matchSnapshot) {
+      const winner = state.matchSnapshot.players.find((p) => p.id === winnerId);
+      if (winner) {
+        const winKey = getVoiceSfxKeyForCharacter(winner.characterId, "win");
+        const WIN_SFX_DELAY_MS = 1800;
+        setTimeout(() => audioSystem.play(winKey), WIN_SFX_DELAY_MS);
+      }
+    }
     resetServerMatchRuntime({ keepResult: true });
     state.matchEnded = payload.summary;
     state.screen = "results";
@@ -1099,6 +1145,7 @@ function render(): void {
   document.body.classList.toggle("match-active", state.screen === "match");
   document.body.classList.toggle("results-active", isResults);
   updateLobbyMusic();
+  updateFightMusic();
   app.innerHTML = renderScreen();
 
   if (focusedField != null && selectionStart != null && selectionEnd != null) {
@@ -1282,7 +1329,7 @@ function renderCountdownScreen(): string {
     <main class="shell countdown-screen">
       <section class="card countdown-card">
         <h1 class="countdown-title">Match Starting</h1>
-        <p class="countdown-stage">Stage: <strong>${escapeHtml(state.matchStarting?.stageId ?? "unknown")}</strong></p>
+        <p class="countdown-stage">Stage: <strong>${escapeHtml(STAGE_CHOICES.find((s) => s.id === state.matchStarting?.stageId)?.label ?? state.matchStarting?.stageId ?? "unknown")}</strong></p>
         <p class="countdown-number" aria-live="polite">${secondsLeft}</p>
         <p class="countdown-subtitle">Get ready...</p>
         ${renderMessages()}
@@ -1295,12 +1342,13 @@ function renderMatchScreen(): string {
   const snapshot = state.matchSnapshot;
   const stageId = state.matchStarting?.stageId ?? null;
   const isStage491 = stageId === "491";
+  const isStageBucs = stageId === "bucs";
   const arenaViewport = getArenaViewport();
   const fighterWidthPx = BASE_FIGHTER_WIDTH_PX * arenaViewport.scale;
   const fighterHeightPx = BASE_FIGHTER_HEIGHT_PX * arenaViewport.scale;
   const fighterFeetOffsetPx = BASE_FIGHTER_FEET_OFFSET_PX * arenaViewport.scale;
   const fallingPlatformMarkup = renderFallingPlatform(snapshot);
-  const arenaClass = isStage491 ? "arena arena--stage-491" : "arena";
+  const arenaClass = isStage491 ? "arena arena--stage-491" : isStageBucs ? "arena arena--stage-bucs" : "arena";
   if (!snapshot) {
     const placeholderPlayers = (state.lobby?.players ?? [])
       .map((player, index) => {
@@ -1725,17 +1773,28 @@ function playHitSfxForSnapshotDelta(previous: MatchSnapshot | null, next: MatchS
       continue;
     }
 
-    const key = getHitSfxKeyForCharacter(player.characterId);
+    const key = getVoiceSfxKeyForCharacter(player.characterId, "hit");
     audioSystem.play(key);
+  }
+
+  for (const player of next.players) {
+    const previousPlayer = previousByPlayerId.get(player.id);
+    if (!previousPlayer) {
+      continue;
+    }
+    if (player.isOutOfPlay && previousPlayer.stocks > player.stocks) {
+      const key = getVoiceSfxKeyForCharacter(player.characterId, "ko");
+      audioSystem.play(key);
+    }
   }
 }
 
-function getHitSfxKeyForCharacter(characterId: string): string {
+function getVoiceSfxKeyForCharacter(characterId: string, type: "hit" | "ko" | "win"): string {
   const normalized = characterId.trim().toLowerCase();
-  if (HIT_SFX_BY_CHARACTER[normalized]) {
-    return `hit:${normalized}`;
+  if (VOICE_MEMOS_BY_CHARACTER[normalized]) {
+    return `${type}:${normalized}`;
   }
-  return "hit:fighter-1";
+  return `${type}:fighter-1`;
 }
 
 function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): string {

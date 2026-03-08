@@ -141,7 +141,7 @@ async function main() {
       );
       assert.equal(
         respawnedGuest.y,
-        DEFAULT_STAGE.blastZone.minY + DEFAULT_MATCH_RULES.respawnTopBuffer,
+        DEFAULT_STAGE.floorY - DEFAULT_MATCH_RULES.respawnTopBuffer,
       );
       assert.equal(respawnedGuest.respawnPlatformCenterX, respawnedGuest.x);
       assert.equal(respawnedGuest.respawnPlatformY, respawnedGuest.y);

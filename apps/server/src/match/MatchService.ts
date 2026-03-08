@@ -801,7 +801,7 @@ function createInitialPlayerState(
 
 function createRespawnedPlayerState(player: PlayerMatchState, session: MatchSession): PlayerMatchState {
   const respawnX = (session.stage.blastZone.minX + session.stage.blastZone.maxX) / 2;
-  const respawnY = session.stage.floorY;
+  const respawnY = session.stage.floorY - session.rules.respawnTopBuffer;
 
   return {
     ...player,
