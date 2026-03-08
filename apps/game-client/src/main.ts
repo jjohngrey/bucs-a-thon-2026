@@ -38,6 +38,13 @@ type AppState = {
   errorMessage: string;
 };
 
+type ArenaViewport = {
+  widthPx: number;
+  heightPx: number;
+  scale: number;
+  groundYPx: number;
+};
+
 const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
 const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
@@ -407,14 +414,45 @@ function isLocalBypassActive(): boolean {
   return localBypassIntervalId !== null && state.roomCode === "LOCAL";
 }
 
+function isServerMatchActive(): boolean {
+  return (
+    state.screen === "match" &&
+    state.lobby?.phase === "in-match" &&
+    state.roomCode.length > 0 &&
+    state.roomCode === state.lobby.roomCode &&
+    socket?.connected === true
+  );
+}
+
+function resetServerMatchRuntime(options?: { keepResult?: boolean }): void {
+  state.matchStarting = null;
+  state.matchSnapshot = null;
+  state.inputFrame = 0;
+  matchStartingAtMs = 0;
+  latestSnapshotReceivedAtMs = 0;
+  previousSnapshot = null;
+  localPredictionByPlayerId = {};
+  predictionAccumulatorMs = 0;
+  resetPressedInputs();
+
+  if (!options?.keepResult) {
+    state.matchEnded = null;
+  }
+}
+
 function startInputEmitLoop(): void {
   const tickMs = Math.round(1000 / SERVER_TICK_RATE);
   window.setInterval(() => {
-    if (state.screen !== "match" || !state.roomCode || !socket?.connected) {
+    if (!isServerMatchActive()) {
       return;
     }
 
-    socket.emit(CLIENT_EVENTS.MATCH_INPUT, {
+    const activeSocket = socket;
+    if (!activeSocket) {
+      return;
+    }
+
+    activeSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
       roomCode: state.roomCode,
       inputFrame: state.inputFrame,
       pressed: { ...pressedInput },
@@ -581,15 +619,7 @@ async function leaveAndDisconnectToHome(): Promise<void> {
   state.playerId = "";
   state.selectedCharacterId = null;
   state.lobby = null;
-  state.matchStarting = null;
-  state.matchSnapshot = null;
-  state.matchEnded = null;
-  state.inputFrame = 0;
-  matchStartingAtMs = 0;
-  latestSnapshotReceivedAtMs = 0;
-  previousSnapshot = null;
-  localPredictionByPlayerId = {};
-  predictionAccumulatorMs = 0;
+  resetServerMatchRuntime();
   state.statusMessage = "Disconnected.";
   state.errorMessage = "";
   render();
@@ -879,16 +909,7 @@ function attachSocketListeners(activeSocket: Socket): void {
 
     if (payload.lobby.phase === "waiting" && state.screen === "results") {
       state.screen = "character-select";
-      state.matchStarting = null;
-      state.matchSnapshot = null;
-      state.matchEnded = null;
-      state.inputFrame = 0;
-      matchStartingAtMs = 0;
-      latestSnapshotReceivedAtMs = 0;
-      previousSnapshot = null;
-      localPredictionByPlayerId = {};
-      predictionAccumulatorMs = 0;
-      resetPressedInputs();
+      resetServerMatchRuntime();
       state.statusMessage = "Back in lobby. Pick a character and ready up.";
     }
 
@@ -941,6 +962,7 @@ function attachSocketListeners(activeSocket: Socket): void {
     if (payload.roomCode !== state.roomCode) {
       return;
     }
+    resetServerMatchRuntime({ keepResult: true });
     state.matchEnded = payload.summary;
     state.screen = "results";
     state.statusMessage = "Match ended.";
@@ -960,6 +982,9 @@ function attachSocketListeners(activeSocket: Socket): void {
   });
 
   activeSocket.on(SERVER_EVENTS.LOBBY_ERROR, (payload: { code: string; message: string }) => {
+    if (payload.code === "NOT_IN_LOBBY") {
+      resetServerMatchRuntime();
+    }
     state.errorMessage = `${payload.code}: ${payload.message}`;
     state.statusMessage = "";
     render();
@@ -967,6 +992,9 @@ function attachSocketListeners(activeSocket: Socket): void {
 
   activeSocket.on("disconnect", () => {
     if (state.screen !== "home") {
+      state.lobby = null;
+      state.roomCode = "";
+      resetServerMatchRuntime();
       state.statusMessage = "Disconnected from server.";
       render();
     }
@@ -997,6 +1025,7 @@ function render(): void {
   document.body.classList.toggle("character-select-active", state.screen === "character-select");
   document.body.classList.toggle("lobby-active", state.screen === "lobby");
   document.body.classList.toggle("countdown-active", state.screen === "countdown");
+  document.body.classList.toggle("match-active", state.screen === "match");
   document.body.classList.toggle("results-active", isResults);
   updateLobbyMusic();
   app.innerHTML = renderScreen();
@@ -1183,28 +1212,25 @@ function renderMatchScreen(): string {
   if (!snapshot) {
     const placeholderPlayers = (state.lobby?.players ?? [])
       .map((player, index) => {
-        const x = 260 + index * 260;
-        const y = 500;
+        const x = arenaViewport.widthPx * (0.2 + index * 0.22);
+        const y = arenaViewport.heightPx * 0.78;
         return `
           <div
             class="arena-player arena-player--placeholder"
-            style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
-          >
-            <div class="arena-player__label">${escapeHtml(player.displayName)} (loading)</div>
-          </div>
+            style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${fighterWidthPx.toFixed(1)}px;height:${fighterHeightPx.toFixed(1)}px;transform: translate(-50%, -100%);"
+          ></div>
         `;
       })
       .join("");
 
     return `
-      <main class="shell shell--wide match-screen">
-        <section class="card match-card">
-          <h1>Match</h1>
-          <p>Waiting for snapshot...</p>
-          <div class="arena">
+      <main class="match-screen" aria-label="Match view">
+        <section class="match-stage match-stage--loading" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
+          <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
             <div class="arena-floor"></div>
             ${placeholderPlayers}
           </div>
+          <div class="match-status-chip" aria-live="polite">Loading fighters...</div>
           ${renderMessages()}
         </section>
       </main>
@@ -1225,7 +1251,7 @@ function renderMatchScreen(): string {
       return `
         <div
           class="arena-player ${koClass} ${invulnClass} arena-player--anim-${actionState}"
-          style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
+          style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${fighterWidthPx.toFixed(1)}px;height:${fighterHeightPx.toFixed(1)}px;transform: translate(-50%, -100%);"
         >
           <img
             class="arena-player__sprite"
@@ -1234,7 +1260,6 @@ function renderMatchScreen(): string {
             onerror="this.style.display='none'"
             style="transform: scaleX(${facingScale});"
           />
-          <div class="arena-player__label">${escapeHtml(player.displayName)} (${actionState})</div>
         </div>
       `;
     })
@@ -1245,7 +1270,7 @@ function renderMatchScreen(): string {
     .map((player) => {
       const centerX = worldToScreenX(player.respawnPlatformCenterX ?? 0);
       const y = worldToScreenY(player.respawnPlatformY ?? 0);
-      return `<div class="respawn-platform" style="left:${centerX.toFixed(1)}px;top:${y.toFixed(1)}px;width:${player.respawnPlatformWidth.toFixed(1)}px"></div>`;
+      return `<div class="respawn-platform" style="left:${centerX.toFixed(1)}px;top:${y.toFixed(1)}px;width:${(player.respawnPlatformWidth * arenaViewport.scale).toFixed(1)}px"></div>`;
     })
     .join("");
 
@@ -1525,13 +1550,34 @@ function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): strin
 }
 
 function worldToScreenX(x: number): number {
+  const arenaViewport = getArenaViewport();
   const normalized = clamp((x - WORLD_MIN_X) / (WORLD_MAX_X - WORLD_MIN_X), 0, 1);
-  return normalized * ARENA_WIDTH;
+  return normalized * arenaViewport.widthPx;
 }
 
 function worldToScreenY(y: number): number {
-  const raw = GROUND_Y_PX + y;
-  return clamp(raw, 0, ARENA_HEIGHT - 4);
+  const arenaViewport = getArenaViewport();
+  const raw = arenaViewport.groundYPx + y * arenaViewport.scale;
+  return clamp(raw, 0, arenaViewport.heightPx - 4 * arenaViewport.scale);
+}
+
+function getArenaViewport(): ArenaViewport {
+  const horizontalPaddingPx = 32;
+  const verticalReservePx = 220;
+  const viewportWidthPx = Math.max(320, window.innerWidth - horizontalPaddingPx);
+  const viewportHeightPx = Math.max(220, window.innerHeight - verticalReservePx);
+  const aspectRatio = BASE_ARENA_WIDTH / BASE_ARENA_HEIGHT;
+  const widthFromHeightPx = viewportHeightPx * aspectRatio;
+  const widthPx = Math.max(320, Math.min(viewportWidthPx, widthFromHeightPx));
+  const heightPx = widthPx / aspectRatio;
+  const scale = widthPx / BASE_ARENA_WIDTH;
+
+  return {
+    widthPx,
+    heightPx,
+    scale,
+    groundYPx: BASE_GROUND_Y_PX * scale,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -95,6 +95,7 @@ Important detail:
   - the server emits an initial `match:snapshot`
 - while the match is active, the server keeps emitting `match:snapshot` on a `30` ticks/second server loop
 - clients can send `match:input`, and the server stores the latest input for each player
+- clients should only keep sending `match:input` while the latest `lobby:state` still says `phase: "in-match"`
 - the current backend simulation now applies:
   - horizontal movement
   - jump
@@ -125,6 +126,7 @@ Important detail:
 - The server also emits `player:disconnected` so clients can show a short status message immediately.
 - If that room is in `starting` or `in-match`, the server ends the match immediately.
 - The remaining players receive `match:ended`.
+- clients should stop local input emission and clear active match runtime state when this happens
 - The lobby phase moves to `finished`.
 - If no live match is active, the server just removes the in-memory match session if one exists.
 - If the host leaves but players remain, the first remaining player becomes the new host.

@@ -29,8 +29,10 @@ The server currently supports:
 - first combat slice:
   - one attack input
   - melee hit detection
+  - wider horizontal and tighter vertical melee hitboxes
   - damage application
   - exponential knockback launch
+  - flatter kick launch angle than the default punch
   - hitstun state
 - authoritative stock and respawn lifecycle:
   - blast-zone KO detection
@@ -52,6 +54,7 @@ The server currently supports:
   - initial spawn points
   - respawn point calculation
   - respawn timing and platform width
+  - a taller top blast zone to reduce premature upper KOs
 - lobby-side selection flow:
   - each player can set `selectedCharacterId`
   - host can set `selectedStageId`

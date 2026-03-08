@@ -7,7 +7,7 @@ export const STAGES: Record<string, StageDefinition> = {
     blastZone: {
       minX: -200,
       maxX: 1400,
-      minY: -400,
+      minY: -560,
       maxY: 900,
     },
     spawnPoints: [
