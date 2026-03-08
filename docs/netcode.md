@@ -39,6 +39,7 @@ This is a simple snapshot model, not rollback netcode.
 - `match:starting`
 - `match:snapshot`
 - `match:ended`
+- `player:disconnected`
 
 ## Match lifecycle
 
@@ -51,7 +52,7 @@ This is a simple snapshot model, not rollback netcode.
 7. Server moves match phase to `active`
 8. Server emits an initial `match:snapshot`
 9. Server continues emitting snapshots on a fixed interval
-10. Clients send `match:input` between snapshots
+10. Clients send `match:input` between snapshots, but only while the latest `lobby:state` is still `phase: "in-match"`
 11. If a player leaves during `countdown` or `active`, the server ends the match and emits `match:ended`
 
 ## Current match simulation
@@ -67,7 +68,8 @@ Each active tick applies:
 - attack edge detection
 - melee hit detection
 - damage
-- knockback
+- exponential knockback launch
+- a flatter kick launch profile than the standard attack
 - hitstun countdown
 - blast-zone KO detection
 - stock decrement
@@ -123,6 +125,7 @@ Current shared defaults:
 - knockback Y: `-8`
 - hitstun ticks: `8`
 - blast zone: from `DEFAULT_STAGE.blastZone`
+- rooftop top blast zone is intentionally taller now to reduce early upper KOs
 - respawn timing/platform: from `DEFAULT_MATCH_RULES`
 
 ## Smoke coverage
@@ -150,3 +153,4 @@ For the current prototype:
 - do not trust client-local positions as final truth
 - do not decide match end locally
 - use `match:ended` to move into results UI
+- stop local input emission and clear local match runtime state on `match:ended` or socket disconnect

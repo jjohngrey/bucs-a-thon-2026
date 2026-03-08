@@ -13,20 +13,24 @@ import {
   DEFAULT_MATCH_RULES,
   DEFAULT_STAGE,
   DEFAULT_ATTACK_DAMAGE,
+  DEFAULT_ATTACK_BASE_KNOCKBACK,
+  DEFAULT_ATTACK_COOLDOWN_TICKS,
   DEFAULT_ATTACK_HEIGHT,
+  DEFAULT_ATTACK_KNOCKBACK_GROWTH,
+  DEFAULT_ATTACK_LAUNCH_ANGLE_DEGREES,
   DEFAULT_ATTACK_RANGE,
   DEFAULT_GRAVITY_PER_TICK,
   DEFAULT_HITSTUN_TICKS,
   DEFAULT_JUMP_VELOCITY,
+  DEFAULT_KICK_BASE_KNOCKBACK,
+  DEFAULT_KICK_COOLDOWN_TICKS,
   DEFAULT_KICK_DAMAGE,
   DEFAULT_KICK_HEIGHT,
   DEFAULT_KICK_HITSTUN_TICKS,
-  DEFAULT_KICK_KNOCKBACK_X,
-  DEFAULT_KICK_KNOCKBACK_Y,
+  DEFAULT_KICK_KNOCKBACK_GROWTH,
+  DEFAULT_KICK_LAUNCH_ANGLE_DEGREES,
   DEFAULT_KICK_RANGE,
   DEFAULT_KO_FALL_SPEED_PER_TICK,
-  DEFAULT_KNOCKBACK_X,
-  DEFAULT_KNOCKBACK_Y,
   DEFAULT_STAGE_ID,
   PLAYER_ACTIONS,
   SERVER_TICK_RATE,
@@ -86,7 +90,9 @@ export type DepartureMatchResult = {
 
 const DEFAULT_COUNTDOWN_MS = 3000;
 const PLAYER_SPEED_PER_TICK = 20;
+const MAX_FALL_SPEED_PER_TICK = 12;
 const TICK_DURATION_MS = 1000 / SERVER_TICK_RATE;
+const RESPAWN_HOVER_MS = 1000;
 
 export class MatchService {
   private readonly pendingStartTimers = new Map<string, NodeJS.Timeout>();
@@ -292,6 +298,7 @@ export class MatchService {
         runtimeState.latestInputsByPlayerId,
         runtimeState.previousInputsByPlayerId,
         runtimeState.hitstunTicksByPlayerId,
+        runtimeState.attackCooldownTicksByPlayerId,
         runtimeState.session,
       );
 
@@ -437,6 +444,7 @@ function advanceSnapshot(
     }
   >,
   hitstunTicksByPlayerId: Record<string, number>,
+  attackCooldownTicksByPlayerId: Record<string, number>,
   session: MatchSession,
 ): MatchSnapshot {
   const nextPlayers: PlayerMatchState[] = previous.players.map((player) => {
@@ -472,6 +480,27 @@ function advanceSnapshot(
     }
 
     const nextInvulnerabilityMs = Math.max(0, player.respawnInvulnerabilityMs - TICK_DURATION_MS);
+    const hoverWindowMs = Math.min(RESPAWN_HOVER_MS, session.rules.respawnInvulnerabilityMs);
+    const hoverThresholdMs = session.rules.respawnInvulnerabilityMs - hoverWindowMs;
+    const hasRespawnPlatform = player.respawnPlatformCenterX !== null && player.respawnPlatformY !== null;
+    if (hasRespawnPlatform && player.respawnInvulnerabilityMs > 0) {
+      const respawnCenterX = player.respawnPlatformCenterX;
+      const respawnY = player.respawnPlatformY;
+      const shouldHoverDuringRespawn = player.respawnInvulnerabilityMs > hoverThresholdMs;
+      return {
+        ...player,
+        x: respawnCenterX!,
+        y: respawnY!,
+        vx: 0,
+        vy: 0,
+        grounded: !shouldHoverDuringRespawn,
+        respawnInvulnerabilityMs: nextInvulnerabilityMs,
+        respawnPlatformCenterX: nextInvulnerabilityMs > 0 ? respawnCenterX : null,
+        respawnPlatformY: nextInvulnerabilityMs > 0 ? respawnY : null,
+        respawnPlatformWidth: nextInvulnerabilityMs > 0 ? player.respawnPlatformWidth : 0,
+        action: shouldHoverDuringRespawn ? PLAYER_ACTIONS.RESPAWN : PLAYER_ACTIONS.IDLE,
+      };
+    }
     const input = latestInputsByPlayerId[player.id];
     const inHitstun = (hitstunTicksByPlayerId[player.id] ?? 0) > 0;
     const horizontalVelocityFromInput =
@@ -486,9 +515,7 @@ function advanceSnapshot(
         : player.vx * 0.85
       : horizontalVelocityFromInput;
     const jumped = Boolean(input?.jump && player.grounded && !inHitstun);
-    const verticalVelocity = jumped
-      ? DEFAULT_JUMP_VELOCITY
-      : player.vy + DEFAULT_GRAVITY_PER_TICK;
+    const verticalVelocity = jumped ? DEFAULT_JUMP_VELOCITY : Math.min(player.vy + DEFAULT_GRAVITY_PER_TICK, MAX_FALL_SPEED_PER_TICK);
     const nextY = player.y + verticalVelocity;
     const grounded = nextY >= session.stage.floorY;
     const resolvedY = grounded ? session.stage.floorY : nextY;
@@ -529,13 +556,24 @@ function advanceSnapshot(
     hitstunTicksByPlayerId[playerId] = Math.max(0, (hitstunTicksByPlayerId[playerId] ?? 0) - 1);
   }
 
+  for (const playerId of Object.keys(attackCooldownTicksByPlayerId)) {
+    attackCooldownTicksByPlayerId[playerId] = Math.max(
+      0,
+      (attackCooldownTicksByPlayerId[playerId] ?? 0) - 1,
+    );
+  }
+
   for (const attacker of nextPlayers) {
     const currentInput = latestInputsByPlayerId[attacker.id];
     const previousInput = previousInputsByPlayerId[attacker.id];
     const attackTriggered = Boolean(currentInput?.attack && !previousInput?.attack);
     const kickTriggered = Boolean(currentInput?.kick && !previousInput?.kick);
     const specialTriggered = Boolean(currentInput?.special && !previousInput?.special);
+    const attackOnCooldown = (attackCooldownTicksByPlayerId[attacker.id] ?? 0) > 0;
     if ((!attackTriggered && !kickTriggered && !specialTriggered) || attacker.action === PLAYER_ACTIONS.HITSTUN) {
+      continue;
+    }
+    if (attackOnCooldown && (attackTriggered || kickTriggered)) {
       continue;
     }
 
@@ -545,26 +583,31 @@ function advanceSnapshot(
     }
 
     const attackProfile = kickTriggered
-      ? {
+        ? {
           action: PLAYER_ACTIONS.KICK,
+          cooldownTicks: DEFAULT_KICK_COOLDOWN_TICKS,
           range: DEFAULT_KICK_RANGE,
           height: DEFAULT_KICK_HEIGHT,
           damage: DEFAULT_KICK_DAMAGE,
-          knockbackX: DEFAULT_KICK_KNOCKBACK_X,
-          knockbackY: DEFAULT_KICK_KNOCKBACK_Y,
+          launchAngleDegrees: DEFAULT_KICK_LAUNCH_ANGLE_DEGREES,
+          baseKnockback: DEFAULT_KICK_BASE_KNOCKBACK,
+          knockbackGrowth: DEFAULT_KICK_KNOCKBACK_GROWTH,
           hitstunTicks: DEFAULT_KICK_HITSTUN_TICKS,
         }
       : {
           action: PLAYER_ACTIONS.ATTACK,
+          cooldownTicks: DEFAULT_ATTACK_COOLDOWN_TICKS,
           range: DEFAULT_ATTACK_RANGE,
           height: DEFAULT_ATTACK_HEIGHT,
           damage: DEFAULT_ATTACK_DAMAGE,
-          knockbackX: DEFAULT_KNOCKBACK_X,
-          knockbackY: DEFAULT_KNOCKBACK_Y,
+          launchAngleDegrees: DEFAULT_ATTACK_LAUNCH_ANGLE_DEGREES,
+          baseKnockback: DEFAULT_ATTACK_BASE_KNOCKBACK,
+          knockbackGrowth: DEFAULT_ATTACK_KNOCKBACK_GROWTH,
           hitstunTicks: DEFAULT_HITSTUN_TICKS,
         };
 
     attacker.action = attackProfile.action;
+    attackCooldownTicksByPlayerId[attacker.id] = attackProfile.cooldownTicks;
 
     const target = nextPlayers.find((candidate) => {
       if (candidate.id === attacker.id) {
@@ -586,10 +629,20 @@ function advanceSnapshot(
     }
 
     target.damage += attackProfile.damage;
-    target.vx = attacker.facing === "right" ? attackProfile.knockbackX : -attackProfile.knockbackX;
-    target.vy = attackProfile.knockbackY;
+    const knockbackMagnitude = calculateKnockbackMagnitude(
+      target.damage,
+      attackProfile.baseKnockback,
+      attackProfile.knockbackGrowth,
+    );
+    const launchVector = getLaunchVector(
+      attackProfile.launchAngleDegrees,
+      attacker.x,
+      target.x,
+    );
+    target.vx = launchVector.x * knockbackMagnitude;
+    target.vy = launchVector.y * knockbackMagnitude;
     target.grounded = false;
-    target.y = Math.min(target.y, session.stage.floorY - 1);
+    target.y = Math.min(target.y, session.stage.floorY - 4);
     target.facing = attacker.facing === "right" ? "left" : "right";
     target.action = PLAYER_ACTIONS.HITSTUN;
     hitstunTicksByPlayerId[target.id] = attackProfile.hitstunTicks;
@@ -711,5 +764,29 @@ function getAutoMatchSummary(snapshot: MatchSnapshot): MatchSummary | null {
   return {
     winnerPlayerId,
     eliminatedPlayerIds,
+  };
+}
+
+function calculateKnockbackMagnitude(
+  targetDamage: number,
+  baseKnockback: number,
+  knockbackGrowth: number,
+): number {
+  const safeDamage = Math.max(0, targetDamage);
+  const exponentialScale = Math.pow(1.028, safeDamage);
+  return baseKnockback * exponentialScale + knockbackGrowth * Math.sqrt(safeDamage);
+}
+
+function getLaunchVector(
+  angleDegrees: number,
+  attackerX: number,
+  targetX: number,
+): { x: number; y: number } {
+  const radians = (angleDegrees * Math.PI) / 180;
+  const direction = targetX >= attackerX ? 1 : -1;
+
+  return {
+    x: Math.cos(radians) * direction,
+    y: -Math.sin(radians),
   };
 }

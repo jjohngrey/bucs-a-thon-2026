@@ -55,6 +55,7 @@ Listen for:
 - `match:starting`
 - `match:snapshot`
 - `match:ended`
+- `player:disconnected`
 
 Emit:
 
@@ -166,6 +167,7 @@ Notes:
 - only host should start
 - current backend requires all non-host players to be ready
 - invalid actions return `lobby:error`
+- `player:disconnected` can be used to show a temporary lobby status message
 
 ### Countdown
 
@@ -195,6 +197,13 @@ socket.emit(CLIENT_EVENTS.MATCH_INPUT, {
   },
 });
 ```
+
+Only send `match:input` while:
+
+- the socket is connected
+- the latest `lobby:state` still exists
+- `lobby.phase === "in-match"`
+- the client is still in the same `roomCode`
 
 Render directly from `match:snapshot`.
 
@@ -228,6 +237,10 @@ Use snapshot state for:
 - respawn countdown
 - respawn platform visuals
 
+Current client render note:
+
+- the match arena now scales from the browser viewport while keeping the same gameplay aspect ratio and world mapping
+
 ### Results
 
 `match:ended` includes:
@@ -242,6 +255,7 @@ Important:
 - the server can emit `match:ended` automatically when only one player has stocks left
 - the server can also emit `match:ended` if a player leaves or disconnects mid-match
 - client `match:end` is still available, but it is no longer the only end path
+- after `match:ended`, `lobby:return`, or socket disconnect, the client should clear local match runtime state and stop emitting `match:input`
 
 Return to lobby:
 

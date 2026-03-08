@@ -14,6 +14,7 @@ import {
   type SessionJoinedPayload,
 } from "@bucs/shared";
 import { io, type Socket } from "socket.io-client";
+import { AudioSystem } from "./game/audio/AudioSystem";
 
 type Screen = "home" | "character-select" | "lobby" | "countdown" | "match" | "results";
 type FlowMode = "create" | "join" | null;
@@ -37,6 +38,13 @@ type AppState = {
   errorMessage: string;
 };
 
+type ArenaViewport = {
+  widthPx: number;
+  heightPx: number;
+  scale: number;
+  groundYPx: number;
+};
+
 const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
 const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
@@ -49,20 +57,24 @@ const STAGE_CHOICES = [
 ] as const;
 const WORLD_MIN_X = -200;
 const WORLD_MAX_X = 1400;
-const ARENA_WIDTH = 840;
-const ARENA_HEIGHT = 360;
-const GROUND_Y_PX = 280;
+const BASE_ARENA_WIDTH = 840;
+const BASE_ARENA_HEIGHT = 360;
+const BASE_GROUND_Y_PX = 300;
 const LOCAL_SPEED_PER_TICK = 6;
 const LOCAL_JUMP_VELOCITY = -14;
 const LOCAL_GRAVITY_PER_TICK = 1.2;
+const LOCAL_MAX_FALL_SPEED_PER_TICK = 12;
 const FALLING_PLATFORM_WORLD_X = 500;
 const FALLING_PLATFORM_WORLD_Y = -110;
-const FALLING_PLATFORM_WIDTH_PX = 170;
-const FALLING_PLATFORM_HEIGHT_PX = 12;
+const BASE_FALLING_PLATFORM_WIDTH_PX = 170;
+const BASE_FALLING_PLATFORM_HEIGHT_PX = 12;
 const FALLING_PLATFORM_STABLE_FRAMES = SERVER_TICK_RATE * 5;
 const FALLING_PLATFORM_FALL_FRAMES = SERVER_TICK_RATE * 2;
 const FALLING_PLATFORM_RESET_FRAMES = SERVER_TICK_RATE * 2;
-const FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
+const BASE_FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
+const BASE_FIGHTER_WIDTH_PX = 30;
+const BASE_FIGHTER_HEIGHT_PX = 72;
+const BASE_FIGHTER_FEET_OFFSET_PX = 10;
 
 type CharacterSpriteSet = {
   stand: string;
@@ -164,6 +176,7 @@ if (!appRoot) {
   throw new Error("Missing #app root element.");
 }
 const app = appRoot;
+const audioSystem = new AudioSystem();
 
 let socket: Socket | null = null;
 let listenersAttached = false;
@@ -171,6 +184,7 @@ let latestSnapshotReceivedAtMs = 0;
 let matchStartingAtMs = 0;
 let previousSnapshot: MatchSnapshot | null = null;
 let localPredictionByPlayerId: Record<string, { x: number; y: number; vy: number; grounded: boolean }> = {};
+let visualActionByPlayerId: Record<string, { action: PlayerAction; holdUntilMs: number }> = {};
 let predictionAccumulatorMs = 0;
 let frameLoopStarted = false;
 let localBypassIntervalId: number | null = null;
@@ -179,12 +193,12 @@ let localBypassServerFrame = 0;
 const LOBBY_MUSIC_SCREENS: Screen[] = ["home", "character-select", "lobby"];
 const lobbyMusic = new Audio("/audio/music/lobby.mp3");
 lobbyMusic.loop = true;
-let lobbyMusicMuted = false;
+let audioMuted = true;
 
 function updateLobbyMusic(): void {
   const shouldPlay = LOBBY_MUSIC_SCREENS.includes(state.screen);
-  lobbyMusic.muted = lobbyMusicMuted;
-  if (shouldPlay && lobbyMusic.paused && !lobbyMusicMuted) {
+  lobbyMusic.muted = audioMuted;
+  if (shouldPlay && lobbyMusic.paused && !audioMuted) {
     lobbyMusic.play().catch(() => {});
   } else if (!shouldPlay && !lobbyMusic.paused) {
     lobbyMusic.pause();
@@ -192,8 +206,8 @@ function updateLobbyMusic(): void {
 }
 
 function renderMuteButton(): string {
-  const label = lobbyMusicMuted ? "Unmute" : "Mute";
-  const src = lobbyMusicMuted ? "/assets/home/volume-mute.png" : "/assets/home/volume.png";
+  const label = audioMuted ? "Unmute" : "Mute";
+  const src = audioMuted ? "/assets/home/volume-mute.png" : "/assets/home/volume.png";
   return `<button type="button" class="mute-btn" data-action="toggle-mute" aria-label="${label}" title="${label}"><img src="${src}" alt="" class="mute-btn-icon" /></button>`;
 }
 
@@ -224,12 +238,40 @@ const pressedInput: PressedInput = {
   special: false,
 };
 
+const secondaryPressedInput: PressedInput = {
+  left: false,
+  right: false,
+  jump: false,
+  attack: false,
+  kick: false,
+  special: false,
+};
+
+const HIT_SFX_BY_CHARACTER: Record<string, string> = {
+  "fighter-1": "/audio/voice-memos/jay/hit.m4a",
+  "fighter-2": "/audio/voice-memos/jia/hit.m4a",
+  "fighter-3": "/audio/voice-memos/jay/hit.m4a",
+  "fighter-4": "/audio/voice-memos/jia/hit.m4a",
+  jay: "/audio/voice-memos/jay/hit.m4a",
+  jia: "/audio/voice-memos/jia/hit.m4a",
+  ryan: "/audio/voice-memos/jay/hit.m4a",
+  fahim: "/audio/voice-memos/jia/hit.m4a",
+};
+
+for (const [characterId, url] of Object.entries(HIT_SFX_BY_CHARACTER)) {
+  audioSystem.registerClip(`hit:${characterId}`, { url, volume: 0.9, poolSize: 3 });
+}
+
 render();
 registerKeyboardInput();
 startInputEmitLoop();
 startFrameLoop();
 
 appRoot.addEventListener("click", async (event) => {
+  if (!audioMuted && !audioSystem.isEnabled()) {
+    audioSystem.enable();
+  }
+
   const target = event.target as HTMLElement | null;
   const actionElement = target?.closest<HTMLElement>("[data-action]");
   if (!actionElement) {
@@ -282,17 +324,20 @@ appRoot.addEventListener("click", async (event) => {
       break;
     }
     case "return-to-lobby":
-      state.screen = "lobby";
-      state.matchEnded = null;
-      state.statusMessage = "";
-      render();
+      await handleReturnToLobby();
       break;
     case "start-match":
       emitMatchStart();
       break;
     case "toggle-mute":
-      lobbyMusicMuted = !lobbyMusicMuted;
-      lobbyMusic.muted = lobbyMusicMuted;
+      audioMuted = !audioMuted;
+      lobbyMusic.muted = audioMuted;
+      if (audioMuted) {
+        audioSystem.disable();
+      } else {
+        audioSystem.enable();
+        updateLobbyMusic();
+      }
       render();
       break;
     default:
@@ -321,6 +366,10 @@ appRoot.addEventListener("input", (event) => {
 
 function registerKeyboardInput(): void {
   window.addEventListener("keydown", (event) => {
+    if (!audioSystem.isEnabled()) {
+      audioSystem.enable();
+    }
+
     if (event.repeat) {
       return;
     }
@@ -343,15 +392,12 @@ function registerKeyboardInput(): void {
 function applyKeyboardPress(code: string, isPressed: boolean): boolean {
   switch (code) {
     case "ArrowLeft":
-    case "KeyA":
       pressedInput.left = isPressed;
       return true;
     case "ArrowRight":
-    case "KeyD":
       pressedInput.right = isPressed;
       return true;
     case "ArrowUp":
-    case "KeyW":
     case "Space":
       pressedInput.jump = isPressed;
       return true;
@@ -364,19 +410,86 @@ function applyKeyboardPress(code: string, isPressed: boolean): boolean {
     case "KeyL":
       pressedInput.special = isPressed;
       return true;
+    case "KeyA":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.left = isPressed;
+      } else {
+        pressedInput.left = isPressed;
+      }
+      return true;
+    case "KeyD":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.right = isPressed;
+      } else {
+        pressedInput.right = isPressed;
+      }
+      return true;
+    case "KeyW":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.jump = isPressed;
+      } else {
+        pressedInput.jump = isPressed;
+      }
+      return true;
+    case "KeyF":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.attack = isPressed;
+      }
+      return true;
+    case "KeyG":
+      if (isLocalBypassActive()) {
+        secondaryPressedInput.special = isPressed;
+      }
+      return true;
     default:
       return false;
+  }
+}
+
+function isLocalBypassActive(): boolean {
+  return localBypassIntervalId !== null && state.roomCode === "LOCAL";
+}
+
+function isServerMatchActive(): boolean {
+  return (
+    state.screen === "match" &&
+    state.lobby?.phase === "in-match" &&
+    state.roomCode.length > 0 &&
+    state.roomCode === state.lobby.roomCode &&
+    socket?.connected === true
+  );
+}
+
+function resetServerMatchRuntime(options?: { keepResult?: boolean }): void {
+  state.matchStarting = null;
+  state.matchSnapshot = null;
+  state.inputFrame = 0;
+  matchStartingAtMs = 0;
+  latestSnapshotReceivedAtMs = 0;
+  previousSnapshot = null;
+  localPredictionByPlayerId = {};
+  visualActionByPlayerId = {};
+  predictionAccumulatorMs = 0;
+  resetPressedInputs();
+
+  if (!options?.keepResult) {
+    state.matchEnded = null;
   }
 }
 
 function startInputEmitLoop(): void {
   const tickMs = Math.round(1000 / SERVER_TICK_RATE);
   window.setInterval(() => {
-    if (state.screen !== "match" || !state.roomCode || !socket?.connected) {
+    if (!isServerMatchActive()) {
       return;
     }
 
-    socket.emit(CLIENT_EVENTS.MATCH_INPUT, {
+    const activeSocket = socket;
+    if (!activeSocket) {
+      return;
+    }
+
+    activeSocket.emit(CLIENT_EVENTS.MATCH_INPUT, {
       roomCode: state.roomCode,
       inputFrame: state.inputFrame,
       pressed: { ...pressedInput },
@@ -498,6 +611,35 @@ async function handleChangeCharacter(): Promise<void> {
   render();
 }
 
+async function handleReturnToLobby(): Promise<void> {
+  if (!state.lobby) {
+    state.errorMessage = "Lobby not found.";
+    render();
+    return;
+  }
+
+  if (state.lobby.hostPlayerId !== state.playerId) {
+    state.errorMessage = "Only the host can return everyone to the lobby.";
+    state.statusMessage = "Waiting for the host to return the room.";
+    render();
+    return;
+  }
+
+  if (!socket?.connected) {
+    state.errorMessage = "Disconnected from server.";
+    render();
+    return;
+  }
+
+  socket.emit(CLIENT_EVENTS.LOBBY_RETURN, {
+    roomCode: state.lobby.roomCode,
+  });
+
+  state.errorMessage = "";
+  state.statusMessage = "Returning to lobby...";
+  render();
+}
+
 async function leaveAndDisconnectToHome(): Promise<void> {
   stopLocalBypassMatch();
 
@@ -514,15 +656,7 @@ async function leaveAndDisconnectToHome(): Promise<void> {
   state.playerId = "";
   state.selectedCharacterId = null;
   state.lobby = null;
-  state.matchStarting = null;
-  state.matchSnapshot = null;
-  state.matchEnded = null;
-  state.inputFrame = 0;
-  matchStartingAtMs = 0;
-  latestSnapshotReceivedAtMs = 0;
-  previousSnapshot = null;
-  localPredictionByPlayerId = {};
-  predictionAccumulatorMs = 0;
+  resetServerMatchRuntime();
   state.statusMessage = "Disconnected.";
   state.errorMessage = "";
   render();
@@ -534,7 +668,9 @@ function startLocalBypassMatch(): void {
 
   const displayName = normalizeDisplayName(state.displayNameInput);
   const localPlayerId = "local-player";
+  const localBotPlayerId = "local-bot";
   const localCharacterId = state.selectedCharacterId ?? "fighter-1";
+  const localBotCharacterId = localCharacterId === "fighter-2" ? "fighter-3" : "fighter-2";
 
   state.mode = null;
   state.playerId = localPlayerId;
@@ -547,6 +683,7 @@ function startLocalBypassMatch(): void {
   state.inputFrame = 0;
   localBypassServerFrame = 0;
   predictionAccumulatorMs = 0;
+  resetPressedInputs();
 
   const initialSnapshot: MatchSnapshot = {
     serverFrame: localBypassServerFrame,
@@ -572,6 +709,26 @@ function startLocalBypassMatch(): void {
         facing: "right",
         action: "idle",
       },
+      {
+        id: localBotPlayerId,
+        displayName: "Player 2",
+        characterId: localBotCharacterId,
+        x: 180,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        grounded: true,
+        damage: 0,
+        stocks: 3,
+        isOutOfPlay: false,
+        respawnTimerMs: 0,
+        respawnInvulnerabilityMs: 0,
+        respawnPlatformCenterX: null,
+        respawnPlatformY: null,
+        respawnPlatformWidth: 0,
+        facing: "left",
+        action: "idle",
+      },
     ],
   };
 
@@ -584,7 +741,14 @@ function startLocalBypassMatch(): void {
       vy: 0,
       grounded: true,
     },
+    [localBotPlayerId]: {
+      x: 180,
+      y: 0,
+      vy: 0,
+      grounded: true,
+    },
   };
+  visualActionByPlayerId = {};
   render();
 
   const tickMs = Math.round(1000 / SERVER_TICK_RATE);
@@ -602,10 +766,12 @@ function stopLocalBypassMatch(): void {
     window.clearInterval(localBypassIntervalId);
     localBypassIntervalId = null;
   }
+  resetPressedInputs();
 }
 
 function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
-  const me = previous.players[0];
+  const me = previous.players.find((player) => player.id === state.playerId);
+  const bot = previous.players.find((player) => player.id !== state.playerId);
   if (!me) {
     return previous;
   }
@@ -618,7 +784,9 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
         : 0;
 
   const jumped = pressedInput.jump && me.grounded;
-  const verticalVelocity = jumped ? LOCAL_JUMP_VELOCITY : me.vy + LOCAL_GRAVITY_PER_TICK;
+  const verticalVelocity = jumped
+    ? LOCAL_JUMP_VELOCITY
+    : Math.min(me.vy + LOCAL_GRAVITY_PER_TICK, LOCAL_MAX_FALL_SPEED_PER_TICK);
   const nextY = me.y + verticalVelocity;
   const grounded = nextY >= 0;
   const resolvedY = grounded ? 0 : nextY;
@@ -636,22 +804,62 @@ function advanceLocalBypassSnapshot(previous: MatchSnapshot): MatchSnapshot {
           ? "jump"
           : "fall";
 
+  const nextPlayers: MatchSnapshot["players"] = [
+    {
+      ...me,
+      x: me.x + horizontalVelocity,
+      y: resolvedY,
+      vx: horizontalVelocity,
+      vy: resolvedVy,
+      grounded,
+      facing,
+      action,
+    },
+  ];
+
+  if (bot) {
+    const botHorizontalVelocity =
+      secondaryPressedInput.left && !secondaryPressedInput.right
+        ? -LOCAL_SPEED_PER_TICK
+        : secondaryPressedInput.right && !secondaryPressedInput.left
+          ? LOCAL_SPEED_PER_TICK
+          : 0;
+    const botJumped = secondaryPressedInput.jump && bot.grounded;
+    const botVerticalVelocity = botJumped
+      ? LOCAL_JUMP_VELOCITY
+      : Math.min(bot.vy + LOCAL_GRAVITY_PER_TICK, LOCAL_MAX_FALL_SPEED_PER_TICK);
+    const botNextY = bot.y + botVerticalVelocity;
+    const botGrounded = botNextY >= 0;
+    const botResolvedY = botGrounded ? 0 : botNextY;
+    const botResolvedVy = botGrounded ? 0 : botVerticalVelocity;
+    const botFacing = botHorizontalVelocity < 0 ? "left" : botHorizontalVelocity > 0 ? "right" : bot.facing;
+    const botAction = secondaryPressedInput.attack
+      ? "attack"
+      : botGrounded
+        ? botHorizontalVelocity === 0
+          ? "idle"
+          : "run"
+        : botResolvedVy < 0
+          ? "jump"
+          : "fall";
+
+    nextPlayers.push({
+      ...bot,
+      x: bot.x + botHorizontalVelocity,
+      y: botResolvedY,
+      vx: botHorizontalVelocity,
+      vy: botResolvedVy,
+      grounded: botGrounded,
+      facing: botFacing,
+      action: botAction,
+    });
+  }
+
   localBypassServerFrame += 1;
   return {
     serverFrame: localBypassServerFrame,
     phase: "active",
-    players: [
-      {
-        ...me,
-        x: me.x + horizontalVelocity,
-        y: resolvedY,
-        vx: horizontalVelocity,
-        vy: resolvedVy,
-        grounded,
-        facing,
-        action,
-      },
-    ],
+    players: nextPlayers,
   };
 }
 
@@ -737,6 +945,12 @@ function attachSocketListeners(activeSocket: Socket): void {
       state.statusMessage = "Connected. Pick a character and ready up.";
     }
 
+    if (payload.lobby.phase === "waiting" && state.screen === "results") {
+      state.screen = "character-select";
+      resetServerMatchRuntime();
+      state.statusMessage = "Back in lobby. Pick a character and ready up.";
+    }
+
     render();
   });
 
@@ -766,6 +980,8 @@ function attachSocketListeners(activeSocket: Socket): void {
     state.statusMessage = "";
     state.errorMessage = "";
     latestSnapshotReceivedAtMs = performance.now();
+    playHitSfxForSnapshotDelta(previousSnapshot, payload.snapshot);
+    updateVisualActionHolds(payload.snapshot);
 
     const nextPrediction: Record<string, { x: number; y: number; vy: number; grounded: boolean }> = {};
     for (const player of payload.snapshot.players) {
@@ -785,13 +1001,29 @@ function attachSocketListeners(activeSocket: Socket): void {
     if (payload.roomCode !== state.roomCode) {
       return;
     }
+    resetServerMatchRuntime({ keepResult: true });
     state.matchEnded = payload.summary;
     state.screen = "results";
     state.statusMessage = "Match ended.";
     render();
   });
 
+  activeSocket.on(SERVER_EVENTS.PLAYER_DISCONNECTED, (payload) => {
+    if (payload.roomCode !== state.roomCode) {
+      return;
+    }
+
+    const disconnectedPlayer = state.lobby?.players.find((player) => player.id === payload.playerId);
+    state.statusMessage = disconnectedPlayer
+      ? `${disconnectedPlayer.displayName} disconnected.`
+      : "A player disconnected.";
+    render();
+  });
+
   activeSocket.on(SERVER_EVENTS.LOBBY_ERROR, (payload: { code: string; message: string }) => {
+    if (payload.code === "NOT_IN_LOBBY") {
+      resetServerMatchRuntime();
+    }
     state.errorMessage = `${payload.code}: ${payload.message}`;
     state.statusMessage = "";
     render();
@@ -799,6 +1031,9 @@ function attachSocketListeners(activeSocket: Socket): void {
 
   activeSocket.on("disconnect", () => {
     if (state.screen !== "home") {
+      state.lobby = null;
+      state.roomCode = "";
+      resetServerMatchRuntime();
       state.statusMessage = "Disconnected from server.";
       render();
     }
@@ -829,6 +1064,7 @@ function render(): void {
   document.body.classList.toggle("character-select-active", state.screen === "character-select");
   document.body.classList.toggle("lobby-active", state.screen === "lobby");
   document.body.classList.toggle("countdown-active", state.screen === "countdown");
+  document.body.classList.toggle("match-active", state.screen === "match");
   document.body.classList.toggle("results-active", isResults);
   updateLobbyMusic();
   app.innerHTML = renderScreen();
@@ -1025,33 +1261,34 @@ function renderCountdownScreen(): string {
 
 function renderMatchScreen(): string {
   const snapshot = state.matchSnapshot;
+  const arenaViewport = getArenaViewport();
+  const fighterWidthPx = BASE_FIGHTER_WIDTH_PX * arenaViewport.scale;
+  const fighterHeightPx = BASE_FIGHTER_HEIGHT_PX * arenaViewport.scale;
+  const fighterFeetOffsetPx = BASE_FIGHTER_FEET_OFFSET_PX * arenaViewport.scale;
   const fallingPlatformMarkup = renderFallingPlatform(snapshot);
   if (!snapshot) {
     const placeholderPlayers = (state.lobby?.players ?? [])
       .map((player, index) => {
-        const x = 260 + index * 260;
-        const y = 500;
+        const x = arenaViewport.widthPx * (0.2 + index * 0.22);
+        const y = arenaViewport.heightPx * 0.78;
         return `
           <div
             class="arena-player arena-player--placeholder"
-            style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
-          >
-            <div class="arena-player__label">${escapeHtml(player.displayName)} (loading)</div>
-          </div>
+            style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${fighterWidthPx.toFixed(1)}px;height:${fighterHeightPx.toFixed(1)}px;transform: translate(-50%, -100%);"
+          ></div>
         `;
       })
       .join("");
 
     return `
-      <main class="shell shell--wide match-screen">
-        <section class="card match-card">
-          <h1>Match</h1>
-          <p>Waiting for snapshot...</p>
-          <div class="arena">
-            <div class="arena-floor"></div>
+      <main class="match-screen" aria-label="Match view">
+        <section class="match-stage match-stage--loading" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
+          <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
+            <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
             ${fallingPlatformMarkup}
             ${placeholderPlayers}
           </div>
+          <div class="match-status-chip" aria-live="polite">Loading fighters...</div>
           ${renderMessages()}
         </section>
       </main>
@@ -1063,25 +1300,25 @@ function renderMatchScreen(): string {
       const predicted = localPredictionByPlayerId[player.id];
       const x = worldToScreenX(predicted?.x ?? player.x);
       const y = worldToScreenY(predicted?.y ?? player.y);
-      const actionState = mapActionToAnimationState(player.action);
+      const displayedAction = getDisplayedAction(player.id, player.action);
+      const actionState = mapActionToAnimationState(displayedAction);
       const facingScale = player.facing === "left" ? -1 : 1;
       const koClass = player.isOutOfPlay ? "arena-player--ko" : "";
       const invulnClass = player.respawnInvulnerabilityMs > 0 ? "arena-player--invulnerable" : "";
-      const spriteUrl = getSpriteUrlForPlayer(player.characterId, player.action);
+      const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
 
       return `
         <div
           class="arena-player ${koClass} ${invulnClass} arena-player--anim-${actionState}"
-          style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
+          style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${fighterWidthPx.toFixed(1)}px;height:${fighterHeightPx.toFixed(1)}px;transform: translate(-50%, -100%);"
         >
           <img
             class="arena-player__sprite"
             src="${spriteUrl}"
             alt="${escapeHtml(player.displayName)} ${actionState}"
             onerror="this.style.display='none'"
-            style="transform: scaleX(${facingScale});"
+            style="transform: translateY(${fighterFeetOffsetPx.toFixed(1)}px) scaleX(${facingScale});"
           />
-          <div class="arena-player__label">${escapeHtml(player.displayName)} (${actionState})</div>
         </div>
       `;
     })
@@ -1092,7 +1329,7 @@ function renderMatchScreen(): string {
     .map((player) => {
       const centerX = worldToScreenX(player.respawnPlatformCenterX ?? 0);
       const y = worldToScreenY(player.respawnPlatformY ?? 0);
-      return `<div class="respawn-platform" style="left:${centerX.toFixed(1)}px;top:${y.toFixed(1)}px;width:${player.respawnPlatformWidth.toFixed(1)}px"></div>`;
+      return `<div class="respawn-platform" style="left:${centerX.toFixed(1)}px;top:${y.toFixed(1)}px;width:${(player.respawnPlatformWidth * arenaViewport.scale).toFixed(1)}px"></div>`;
     })
     .join("");
 
@@ -1130,13 +1367,11 @@ function renderMatchScreen(): string {
     .join("");
 
   return `
-    <main class="shell shell--wide match-screen">
-      <section class="card match-card">
-        <h1>Match</h1>
-        <p>Authoritative snapshot rendering with temporary local prediction feel.</p>
-        <p class="controls-note">Move: A/D or Arrow keys, Jump: W/Up/Space, Attack: J, Special: K</p>
-        <div class="arena">
-          <div class="arena-floor"></div>
+    <main class="match-screen" aria-label="Match view">
+      <section class="match-stage" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
+        <h1 class="match-title">SUPER SMASH BUCS</h1>
+        <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
+          <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
           ${fallingPlatformMarkup}
           ${respawnPlatformsMarkup}
           ${playersMarkup}
@@ -1176,6 +1411,7 @@ function renderFallingPlatform(snapshot: MatchSnapshot | null): string {
 }
 
 function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingPlatformVisualState {
+  const arenaViewport = getArenaViewport();
   const cycleFrames = FALLING_PLATFORM_STABLE_FRAMES + FALLING_PLATFORM_FALL_FRAMES + FALLING_PLATFORM_RESET_FRAMES;
   const fallbackFrame = Math.floor(performance.now() / (1000 / SERVER_TICK_RATE));
   const sourceFrame = snapshot?.serverFrame ?? fallbackFrame;
@@ -1189,8 +1425,8 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
       visible: true,
       x: baseX,
       y: baseY,
-      widthPx: FALLING_PLATFORM_WIDTH_PX,
-      heightPx: FALLING_PLATFORM_HEIGHT_PX,
+      widthPx: BASE_FALLING_PLATFORM_WIDTH_PX * arenaViewport.scale,
+      heightPx: BASE_FALLING_PLATFORM_HEIGHT_PX * arenaViewport.scale,
       shaking: phaseFrame >= warningWindowStart,
       falling: false,
     };
@@ -1203,9 +1439,9 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
     return {
       visible: true,
       x: baseX,
-      y: baseY + FALLING_PLATFORM_DROP_DISTANCE_PX * easedProgress,
-      widthPx: FALLING_PLATFORM_WIDTH_PX,
-      heightPx: FALLING_PLATFORM_HEIGHT_PX,
+      y: baseY + BASE_FALLING_PLATFORM_DROP_DISTANCE_PX * arenaViewport.scale * easedProgress,
+      widthPx: BASE_FALLING_PLATFORM_WIDTH_PX * arenaViewport.scale,
+      heightPx: BASE_FALLING_PLATFORM_HEIGHT_PX * arenaViewport.scale,
       shaking: false,
       falling: true,
     };
@@ -1215,8 +1451,8 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
     visible: false,
     x: baseX,
     y: baseY,
-    widthPx: FALLING_PLATFORM_WIDTH_PX,
-    heightPx: FALLING_PLATFORM_HEIGHT_PX,
+    widthPx: BASE_FALLING_PLATFORM_WIDTH_PX * arenaViewport.scale,
+    heightPx: BASE_FALLING_PLATFORM_HEIGHT_PX * arenaViewport.scale,
     shaking: false,
     falling: false,
   };
@@ -1224,6 +1460,7 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
 
 function renderResultsScreen(): string {
   const summary = state.matchEnded;
+  const isHost = Boolean(state.lobby && state.playerId && state.lobby.hostPlayerId === state.playerId);
   const winnerId = summary?.winnerPlayerId ?? null;
   const winnerPlayer = winnerId && state.lobby?.players
     ? state.lobby.players.find((p) => p.id === winnerId)
@@ -1256,13 +1493,28 @@ function renderResultsScreen(): string {
         </p>
         ` : ""}
         <div class="results-actions">
-          <button type="button" class="results-btn results-btn--primary" data-action="return-to-lobby">Stay in Lobby</button>
+          <button type="button" class="results-btn results-btn--primary" data-action="return-to-lobby" ${isHost ? "" : "disabled"}>${isHost ? "Stay in Lobby" : "Waiting for Host"}</button>
           <button type="button" class="results-btn" data-action="leave-lobby">Exit To Home</button>
         </div>
         ${renderMessages()}
       </section>
     </main>
   `;
+}
+
+function resetPressedInputs(): void {
+  pressedInput.left = false;
+  pressedInput.right = false;
+  pressedInput.jump = false;
+  pressedInput.attack = false;
+  pressedInput.kick = false;
+  pressedInput.special = false;
+  secondaryPressedInput.left = false;
+  secondaryPressedInput.right = false;
+  secondaryPressedInput.jump = false;
+  secondaryPressedInput.attack = false;
+  secondaryPressedInput.kick = false;
+  secondaryPressedInput.special = false;
 }
 
 function renderMessages(): string {
@@ -1316,6 +1568,18 @@ function updateLocalPrediction(deltaMs: number): void {
       continue;
     }
 
+    const anchoredOnRespawnPlatform =
+      player.respawnInvulnerabilityMs > 0 &&
+      player.respawnPlatformCenterX !== null &&
+      player.respawnPlatformY !== null;
+    if (player.action === "respawn" || anchoredOnRespawnPlatform) {
+      prediction.x = blend(prediction.x, player.x, 0.25);
+      prediction.y = blend(prediction.y, player.y, 0.25);
+      prediction.vy = player.vy;
+      prediction.grounded = player.grounded;
+      continue;
+    }
+
     for (let index = 0; index < simulatedTicks; index += 1) {
       const horizontalVelocity =
         pressedInput.left && !pressedInput.right
@@ -1325,7 +1589,9 @@ function updateLocalPrediction(deltaMs: number): void {
             : 0;
 
       const shouldJump = pressedInput.jump && prediction.grounded;
-      prediction.vy = shouldJump ? LOCAL_JUMP_VELOCITY : prediction.vy + LOCAL_GRAVITY_PER_TICK;
+      prediction.vy = shouldJump
+        ? LOCAL_JUMP_VELOCITY
+        : Math.min(prediction.vy + LOCAL_GRAVITY_PER_TICK, LOCAL_MAX_FALL_SPEED_PER_TICK);
       prediction.x += horizontalVelocity;
       prediction.y += prediction.vy;
 
@@ -1365,6 +1631,73 @@ function mapActionToAnimationState(action: PlayerAction): string {
   }
 }
 
+function getDisplayedAction(playerId: string, serverAction: PlayerAction): PlayerAction {
+  const nowMs = performance.now();
+  const heldAction = visualActionByPlayerId[playerId];
+  if (heldAction && heldAction.holdUntilMs > nowMs) {
+    return heldAction.action;
+  }
+  if (heldAction) {
+    delete visualActionByPlayerId[playerId];
+  }
+  return serverAction;
+}
+
+function updateVisualActionHolds(snapshot: MatchSnapshot): void {
+  const nowMs = performance.now();
+  for (const player of snapshot.players) {
+    const holdMs = getActionHoldMs(player.action);
+    if (holdMs <= 0) {
+      continue;
+    }
+
+    visualActionByPlayerId[player.id] = {
+      action: player.action,
+      holdUntilMs: nowMs + holdMs,
+    };
+  }
+}
+
+function getActionHoldMs(action: PlayerAction): number {
+  switch (action) {
+    case "kick":
+      return 180;
+    case "attack":
+      return 110;
+    default:
+      return 0;
+  }
+}
+
+function playHitSfxForSnapshotDelta(previous: MatchSnapshot | null, next: MatchSnapshot): void {
+  if (!previous) {
+    return;
+  }
+
+  const previousByPlayerId = new Map(previous.players.map((player) => [player.id, player]));
+  for (const player of next.players) {
+    const previousPlayer = previousByPlayerId.get(player.id);
+    if (!previousPlayer) {
+      continue;
+    }
+
+    if (player.damage <= previousPlayer.damage) {
+      continue;
+    }
+
+    const key = getHitSfxKeyForCharacter(player.characterId);
+    audioSystem.play(key);
+  }
+}
+
+function getHitSfxKeyForCharacter(characterId: string): string {
+  const normalized = characterId.trim().toLowerCase();
+  if (HIT_SFX_BY_CHARACTER[normalized]) {
+    return `hit:${normalized}`;
+  }
+  return "hit:fighter-1";
+}
+
 function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): string {
   const normalizedCharacterId = characterId.trim().toLowerCase();
   const sprites = CHARACTER_SPRITES[normalizedCharacterId] ?? CHARACTER_SPRITES["fighter-1"];
@@ -1390,13 +1723,34 @@ function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): strin
 }
 
 function worldToScreenX(x: number): number {
+  const arenaViewport = getArenaViewport();
   const normalized = clamp((x - WORLD_MIN_X) / (WORLD_MAX_X - WORLD_MIN_X), 0, 1);
-  return normalized * ARENA_WIDTH;
+  return normalized * arenaViewport.widthPx;
 }
 
 function worldToScreenY(y: number): number {
-  const raw = GROUND_Y_PX + y;
-  return clamp(raw, 0, ARENA_HEIGHT - 4);
+  const arenaViewport = getArenaViewport();
+  const raw = arenaViewport.groundYPx + y * arenaViewport.scale;
+  return clamp(raw, 0, arenaViewport.heightPx - 4 * arenaViewport.scale);
+}
+
+function getArenaViewport(): ArenaViewport {
+  const horizontalPaddingPx = 32;
+  const verticalReservePx = 220;
+  const viewportWidthPx = Math.max(320, window.innerWidth - horizontalPaddingPx);
+  const viewportHeightPx = Math.max(220, window.innerHeight - verticalReservePx);
+  const aspectRatio = BASE_ARENA_WIDTH / BASE_ARENA_HEIGHT;
+  const widthFromHeightPx = viewportHeightPx * aspectRatio;
+  const widthPx = Math.max(320, Math.min(viewportWidthPx, widthFromHeightPx));
+  const heightPx = widthPx / aspectRatio;
+  const scale = widthPx / BASE_ARENA_WIDTH;
+
+  return {
+    widthPx,
+    heightPx,
+    scale,
+    groundYPx: BASE_GROUND_Y_PX * scale,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {
