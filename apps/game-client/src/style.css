@@ -1145,6 +1145,11 @@ input {
   padding: 10px 12px;
 }
 
+.match-hud--multi .hud-player {
+  flex-basis: min(260px, calc(50% - 6px));
+  min-width: 300px;
+}
+
 .hud-player--ko {
   filter: grayscale(0.3) saturate(0.5);
   opacity: 0.85;

@@ -1387,6 +1387,7 @@ const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
       `;
     })
     .join("");
+  const hudClass = snapshot.players.length > 2 ? "match-hud match-hud--multi" : "match-hud";
 
   return `
     <main class="match-screen" aria-label="Match view">
@@ -1398,7 +1399,7 @@ const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
           ${respawnPlatformsMarkup}
           ${playersMarkup}
         </div>
-        <section class="match-hud" aria-label="Match status">${hudMarkup}</section>
+        <section class="${hudClass}" aria-label="Match status">${hudMarkup}</section>
         ${renderMessages()}
       </section>
     </main>
