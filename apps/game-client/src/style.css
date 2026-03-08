@@ -527,7 +527,7 @@ input {
 
 .lobby-map-options {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
 
@@ -553,7 +553,7 @@ input {
 .lobby-map-option--selected {
   background: rgba(232, 168, 61, 0.25);
   border-color: var(--retro-border);
-  color: var(--retro-panel);
+  color: var(--retro-bg);
 }
 
 .lobby-map-option:disabled {
@@ -862,6 +862,20 @@ input {
   margin-bottom: 12px;
 }
 
+.arena--stage-491 {
+  background-image: url("/assets/stages/491.png");
+  background-size: cover;
+  background-position: center;
+  border: none;
+}
+
+.arena--stage-bucs {
+  background-image: url("/assets/stages/bucs.png");
+  background-size: cover;
+  background-position: center;
+  border: none;
+}
+
 /* --- Results screen: blue background + alternate text --- */
 @keyframes results-pop {
   0% { transform: scale(0.6); opacity: 0; }
@@ -1023,22 +1037,18 @@ input {
 
 .arena-floor {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 20%;
+  right: 16%;
   height: 12px;
-  border-top: 3px solid var(--retro-border);
-  background: linear-gradient(180deg, rgba(15, 46, 86, 0.85) 0%, rgba(7, 37, 72, 0.95) 100%);
-  box-shadow: 0 3px 0 rgba(1, 22, 48, 0.5);
+  border: none;
+  background: transparent;
+  box-shadow: none;
   z-index: 0;
+  pointer-events: none;
 }
 
 .arena-floor::after {
-  content: "";
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  top: 50%;
-  border-top: 1px dashed rgba(148, 163, 184, 0.4);
+  content: none;
 }
 
 .respawn-platform {
@@ -1055,7 +1065,10 @@ input {
   width: 52px;
   height: 118px;
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
 }
 
 .arena-player--ko {
@@ -1115,11 +1128,13 @@ input {
 }
 
 .arena-player__sprite {
-  width: 100%;
   height: 100%;
-  object-fit: cover;
+  width: auto;
+  max-width: none;
+  object-fit: contain;
   object-position: center bottom;
-  transform-origin: center;
+  transform-origin: center bottom;
+  display: block;
 }
 
 .arena-player__charge-tint {

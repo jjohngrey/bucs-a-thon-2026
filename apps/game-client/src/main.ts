@@ -34,6 +34,8 @@ type AppState = {
   matchStarting: MatchStartingPayload | null;
   matchSnapshot: MatchSnapshot | null;
   matchEnded: MatchEndedPayload["summary"] | null;
+  /** Display names for match participants, captured when match ends so they persist if players leave. */
+  resultsPlayerNames: Record<string, string> | null;
   inputFrame: number;
   statusMessage: string;
   errorMessage: string;
@@ -51,10 +53,8 @@ const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
 const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
 const STAGE_CHOICES = [
-  { id: "rooftop", label: "Rooftop" },
-  { id: "bucs", label: "Bucs" },
   { id: "491", label: "491" },
-  { id: "arena", label: "Arena" },
+  { id: "bucs", label: "BUCS" },
 ] as const;
 const WORLD_MIN_X = -200;
 const WORLD_MAX_X = 1400;
@@ -76,6 +76,8 @@ const BASE_FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
 const BASE_FIGHTER_WIDTH_PX = 30;
 const BASE_FIGHTER_HEIGHT_PX = 72;
 const BASE_FIGHTER_FEET_OFFSET_PX = 10;
+const STAGE_491_PLATFORM_MIN_X = 120;
+const STAGE_491_PLATFORM_MAX_X = 1144;
 
 type CharacterSpriteSet = {
   stand: string;
@@ -196,6 +198,10 @@ const lobbyMusic = new Audio("/audio/music/lobby.mp3");
 lobbyMusic.loop = true;
 let audioMuted = true;
 
+const fightMusic = new Audio("/audio/music/fight.mp3");
+fightMusic.loop = true;
+fightMusic.volume = 0.25;
+
 function updateLobbyMusic(): void {
   const shouldPlay = LOBBY_MUSIC_SCREENS.includes(state.screen);
   lobbyMusic.muted = audioMuted;
@@ -203,6 +209,16 @@ function updateLobbyMusic(): void {
     lobbyMusic.play().catch(() => {});
   } else if (!shouldPlay && !lobbyMusic.paused) {
     lobbyMusic.pause();
+  }
+}
+
+function updateFightMusic(): void {
+  const shouldPlay = state.screen === "countdown" || state.screen === "match";
+  fightMusic.muted = audioMuted;
+  if (shouldPlay && fightMusic.paused && !audioMuted) {
+    fightMusic.play().catch(() => {});
+  } else if (!shouldPlay && !fightMusic.paused) {
+    fightMusic.pause();
   }
 }
 
@@ -225,6 +241,7 @@ const state: AppState = {
   matchStarting: null,
   matchSnapshot: null,
   matchEnded: null,
+  resultsPlayerNames: null,
   inputFrame: 0,
   statusMessage: "",
   errorMessage: "",
@@ -248,19 +265,21 @@ const secondaryPressedInput: PressedInput = {
   special: false,
 };
 
-const HIT_SFX_BY_CHARACTER: Record<string, string> = {
-  "fighter-1": "/audio/voice-memos/jay/hit.m4a",
-  "fighter-2": "/audio/voice-memos/jia/hit.m4a",
-  "fighter-3": "/audio/voice-memos/jay/hit.m4a",
-  "fighter-4": "/audio/voice-memos/jia/hit.m4a",
-  jay: "/audio/voice-memos/jay/hit.m4a",
-  jia: "/audio/voice-memos/jia/hit.m4a",
-  ryan: "/audio/voice-memos/jay/hit.m4a",
-  fahim: "/audio/voice-memos/jia/hit.m4a",
+const VOICE_MEMOS_BY_CHARACTER: Record<string, { hit: string; ko: string; win: string }> = {
+  "fighter-1": { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  "fighter-2": { hit: "/audio/voice-memos/jia/hit.m4a", ko: "/audio/voice-memos/jia/ko.m4a", win: "/audio/voice-memos/jia/win.m4a" },
+  "fighter-3": { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  "fighter-4": { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  jay: { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  jia: { hit: "/audio/voice-memos/jia/hit.m4a", ko: "/audio/voice-memos/jia/ko.m4a", win: "/audio/voice-memos/jia/win.m4a" },
+  ryan: { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
+  fahim: { hit: "/audio/voice-memos/jay/hit.m4a", ko: "/audio/voice-memos/jay/ko.m4a", win: "/audio/voice-memos/jay/win.m4a" },
 };
 
-for (const [characterId, url] of Object.entries(HIT_SFX_BY_CHARACTER)) {
-  audioSystem.registerClip(`hit:${characterId}`, { url, volume: 0.9, poolSize: 3 });
+for (const [characterId, urls] of Object.entries(VOICE_MEMOS_BY_CHARACTER)) {
+  audioSystem.registerClip(`hit:${characterId}`, { url: urls.hit, volume: 0.9, poolSize: 3 });
+  audioSystem.registerClip(`ko:${characterId}`, { url: urls.ko, volume: 0.9, poolSize: 1 });
+  audioSystem.registerClip(`win:${characterId}`, { url: urls.win, volume: 0.9, poolSize: 1 });
 }
 
 render();
@@ -271,6 +290,10 @@ startFrameLoop();
 appRoot.addEventListener("click", async (event) => {
   if (!audioMuted && !audioSystem.isEnabled()) {
     audioSystem.enable();
+  }
+  if (!audioMuted && (state.screen === "countdown" || state.screen === "match") && fightMusic.paused) {
+    lobbyMusic.pause();
+    fightMusic.play().catch(() => {});
   }
 
   const target = event.target as HTMLElement | null;
@@ -283,6 +306,11 @@ appRoot.addEventListener("click", async (event) => {
 
   switch (action) {
     case "quick-test-match":
+      if (!audioMuted) {
+        lobbyMusic.pause();
+        fightMusic.currentTime = 0;
+        fightMusic.play().catch(() => {});
+      }
       startLocalBypassMatch();
       break;
     case "create-lobby":
@@ -328,16 +356,28 @@ appRoot.addEventListener("click", async (event) => {
       await handleReturnToLobby();
       break;
     case "start-match":
+      if (!audioMuted) {
+        lobbyMusic.pause();
+        fightMusic.currentTime = 0;
+        fightMusic.play().catch(() => {});
+      }
       emitMatchStart();
       break;
     case "toggle-mute":
       audioMuted = !audioMuted;
       lobbyMusic.muted = audioMuted;
+      fightMusic.muted = audioMuted;
       if (audioMuted) {
         audioSystem.disable();
       } else {
         audioSystem.enable();
         updateLobbyMusic();
+        updateFightMusic();
+        if (state.screen === "countdown" || state.screen === "match") {
+          lobbyMusic.pause();
+          fightMusic.currentTime = 0;
+          fightMusic.play().catch(() => {});
+        }
       }
       render();
       break;
@@ -475,6 +515,7 @@ function resetServerMatchRuntime(options?: { keepResult?: boolean }): void {
 
   if (!options?.keepResult) {
     state.matchEnded = null;
+    state.resultsPlayerNames = null;
   }
 }
 
@@ -1021,6 +1062,23 @@ function attachSocketListeners(activeSocket: Socket): void {
     if (payload.roomCode !== state.roomCode) {
       return;
     }
+    const names: Record<string, string> = {};
+    for (const p of state.matchSnapshot?.players ?? []) {
+      names[p.id] = p.displayName;
+    }
+    for (const p of state.lobby?.players ?? []) {
+      if (p.displayName) names[p.id] = p.displayName;
+    }
+    state.resultsPlayerNames = Object.keys(names).length ? names : null;
+    const winnerId = payload.summary?.winnerPlayerId ?? null;
+    if (winnerId && state.matchSnapshot) {
+      const winner = state.matchSnapshot.players.find((p) => p.id === winnerId);
+      if (winner) {
+        const winKey = getVoiceSfxKeyForCharacter(winner.characterId, "win");
+        const WIN_SFX_DELAY_MS = 1800;
+        setTimeout(() => audioSystem.play(winKey), WIN_SFX_DELAY_MS);
+      }
+    }
     resetServerMatchRuntime({ keepResult: true });
     state.matchEnded = payload.summary;
     state.screen = "results";
@@ -1087,6 +1145,7 @@ function render(): void {
   document.body.classList.toggle("match-active", state.screen === "match");
   document.body.classList.toggle("results-active", isResults);
   updateLobbyMusic();
+  updateFightMusic();
   app.innerHTML = renderScreen();
 
   if (focusedField != null && selectionStart != null && selectionEnd != null) {
@@ -1270,7 +1329,7 @@ function renderCountdownScreen(): string {
     <main class="shell countdown-screen">
       <section class="card countdown-card">
         <h1 class="countdown-title">Match Starting</h1>
-        <p class="countdown-stage">Stage: <strong>${escapeHtml(state.matchStarting?.stageId ?? "unknown")}</strong></p>
+        <p class="countdown-stage">Stage: <strong>${escapeHtml(STAGE_CHOICES.find((s) => s.id === state.matchStarting?.stageId)?.label ?? state.matchStarting?.stageId ?? "unknown")}</strong></p>
         <p class="countdown-number" aria-live="polite">${secondsLeft}</p>
         <p class="countdown-subtitle">Get ready...</p>
         ${renderMessages()}
@@ -1281,11 +1340,15 @@ function renderCountdownScreen(): string {
 
 function renderMatchScreen(): string {
   const snapshot = state.matchSnapshot;
+  const stageId = state.matchStarting?.stageId ?? null;
+  const isStage491 = stageId === "491";
+  const isStageBucs = stageId === "bucs";
   const arenaViewport = getArenaViewport();
   const fighterWidthPx = BASE_FIGHTER_WIDTH_PX * arenaViewport.scale;
   const fighterHeightPx = BASE_FIGHTER_HEIGHT_PX * arenaViewport.scale;
   const fighterFeetOffsetPx = BASE_FIGHTER_FEET_OFFSET_PX * arenaViewport.scale;
   const fallingPlatformMarkup = renderFallingPlatform(snapshot);
+  const arenaClass = isStage491 ? "arena arena--stage-491" : isStageBucs ? "arena arena--stage-bucs" : "arena";
   if (!snapshot) {
     const placeholderPlayers = (state.lobby?.players ?? [])
       .map((player, index) => {
@@ -1303,7 +1366,7 @@ function renderMatchScreen(): string {
     return `
       <main class="match-screen" aria-label="Match view">
         <section class="match-stage match-stage--loading" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
-          <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
+          <div class="${arenaClass}" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
             <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
             ${fallingPlatformMarkup}
             ${placeholderPlayers}
@@ -1316,6 +1379,7 @@ function renderMatchScreen(): string {
   }
 
   const playersMarkup = snapshot.players
+    .filter((player) => player.stocks > 0)
     .map((player) => {
       const predicted = localPredictionByPlayerId[player.id];
       const x = worldToScreenX(predicted?.x ?? player.x);
@@ -1397,7 +1461,7 @@ function renderMatchScreen(): string {
     <main class="match-screen" aria-label="Match view">
       <section class="match-stage" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
         <h1 class="match-title">SUPER SMASH BUCS</h1>
-        <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
+        <div class="${arenaClass}" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
           <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
           ${fallingPlatformMarkup}
           ${respawnPlatformsMarkup}
@@ -1488,17 +1552,15 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
 function renderResultsScreen(): string {
   const summary = state.matchEnded;
   const isHost = Boolean(state.lobby && state.playerId && state.lobby.hostPlayerId === state.playerId);
+  const names = state.resultsPlayerNames;
+  const getName = (id: string): string =>
+    names?.[id] ?? state.lobby?.players?.find((p) => p.id === id)?.displayName ?? id;
   const winnerId = summary?.winnerPlayerId ?? null;
-  const winnerPlayer = winnerId && state.lobby?.players
-    ? state.lobby.players.find((p) => p.id === winnerId)
-    : null;
-  const winnerDisplayName = winnerPlayer?.displayName ?? winnerId ?? "—";
+  const winnerDisplayName = winnerId ? getName(winnerId) : "—";
   const isYouWinner = winnerId === state.playerId;
   const isYouLoser = Boolean(winnerId && state.playerId && winnerId !== state.playerId);
   const eliminatedIds = summary?.eliminatedPlayerIds ?? [];
-  const eliminatedNames = eliminatedIds
-    .map((id) => state.lobby?.players?.find((p) => p.id === id)?.displayName ?? id)
-    .join(", ");
+  const eliminatedNames = eliminatedIds.map((id) => getName(id)).join(", ");
   const badgeText = isYouLoser ? "DEFEAT" : "VICTORY";
   const outcomeLine = isYouWinner
     ? '<p class="results-outcome results-outcome--win">YOU WIN!</p>'
@@ -1622,7 +1684,11 @@ function updateLocalPrediction(deltaMs: number): void {
       prediction.x += horizontalVelocity;
       prediction.y += prediction.vy;
 
-      if (prediction.y >= 0) {
+      const isStage491 = state.matchStarting?.stageId === "491";
+      const onPlatform =
+        !isStage491 ||
+        (prediction.x >= STAGE_491_PLATFORM_MIN_X && prediction.x <= STAGE_491_PLATFORM_MAX_X);
+      if (prediction.y >= 0 && onPlatform) {
         prediction.y = 0;
         prediction.vy = 0;
         prediction.grounded = true;
@@ -1688,9 +1754,9 @@ function updateVisualActionHolds(snapshot: MatchSnapshot): void {
 function getActionHoldMs(action: PlayerAction): number {
   switch (action) {
     case "kick":
-      return 180;
+      return 320;
     case "attack":
-      return 110;
+      return 240;
     default:
       return 0;
   }
@@ -1712,17 +1778,28 @@ function playHitSfxForSnapshotDelta(previous: MatchSnapshot | null, next: MatchS
       continue;
     }
 
-    const key = getHitSfxKeyForCharacter(player.characterId);
+    const key = getVoiceSfxKeyForCharacter(player.characterId, "hit");
     audioSystem.play(key);
+  }
+
+  for (const player of next.players) {
+    const previousPlayer = previousByPlayerId.get(player.id);
+    if (!previousPlayer) {
+      continue;
+    }
+    if (player.isOutOfPlay && previousPlayer.stocks > player.stocks) {
+      const key = getVoiceSfxKeyForCharacter(player.characterId, "ko");
+      audioSystem.play(key);
+    }
   }
 }
 
-function getHitSfxKeyForCharacter(characterId: string): string {
+function getVoiceSfxKeyForCharacter(characterId: string, type: "hit" | "ko" | "win"): string {
   const normalized = characterId.trim().toLowerCase();
-  if (HIT_SFX_BY_CHARACTER[normalized]) {
-    return `hit:${normalized}`;
+  if (VOICE_MEMOS_BY_CHARACTER[normalized]) {
+    return `${type}:${normalized}`;
   }
-  return "hit:fighter-1";
+  return `${type}:fighter-1`;
 }
 
 function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): string {

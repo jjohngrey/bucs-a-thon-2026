@@ -39,8 +39,17 @@ export const STAGES: Record<string, StageDefinition> = {
   "491": {
     id: "491",
     floorY: 0,
-    blastZone: ROOFTOP_BLAST,
-    spawnPoints: ROOFTOP_SPAWNS,
+    blastZone: {
+      ...ROOFTOP_BLAST,
+      minX: 120,
+      maxX: 1144,
+      maxY: 120,
+    },
+    spawnPoints: [
+      { x: 400, y: 0 },
+      { x: 600, y: 0 },
+      { x: 800, y: 0 },
+    ],
   },
   arena: {
     id: "arena",
@@ -50,4 +59,4 @@ export const STAGES: Record<string, StageDefinition> = {
   },
 };
 
-export const DEFAULT_STAGE = STAGES.rooftop;
+export const DEFAULT_STAGE = STAGES["491"];
