@@ -93,6 +93,9 @@ const PLAYER_SPEED_PER_TICK = 20;
 const MAX_FALL_SPEED_PER_TICK = 12;
 const TICK_DURATION_MS = 1000 / SERVER_TICK_RATE;
 const RESPAWN_HOVER_MS = 1000;
+const TARGET_HURTBOX_HALF_WIDTH = 18;
+const TARGET_HURTBOX_HALF_HEIGHT = 34;
+const CLOSE_OVERLAP_HALF_WIDTH = 42;
 
 export class MatchService {
   private readonly pendingStartTimers = new Map<string, NodeJS.Timeout>();
@@ -618,9 +621,14 @@ function advanceSnapshot(
       }
 
       const dx = candidate.x - attacker.x;
-      const withinFacing =
-        attacker.facing === "right" ? dx >= 0 && dx <= attackProfile.range : dx <= 0 && dx >= -attackProfile.range;
-      const withinHeight = Math.abs(candidate.y - attacker.y) <= attackProfile.height;
+      const effectiveHorizontalRange = attackProfile.range + TARGET_HURTBOX_HALF_WIDTH;
+      const overlappingAtCloseRange = Math.abs(dx) <= CLOSE_OVERLAP_HALF_WIDTH;
+      const withinFacing = overlappingAtCloseRange
+        || (attacker.facing === "right"
+          ? dx >= -TARGET_HURTBOX_HALF_WIDTH && dx <= effectiveHorizontalRange
+          : dx <= TARGET_HURTBOX_HALF_WIDTH && dx >= -effectiveHorizontalRange);
+      const withinHeight =
+        Math.abs(candidate.y - attacker.y) <= attackProfile.height + TARGET_HURTBOX_HALF_HEIGHT;
       return withinFacing && withinHeight;
     });
 
@@ -628,9 +636,10 @@ function advanceSnapshot(
       continue;
     }
 
+    const damageBeforeHit = target.damage;
     target.damage += attackProfile.damage;
     const knockbackMagnitude = calculateKnockbackMagnitude(
-      target.damage,
+      damageBeforeHit,
       attackProfile.baseKnockback,
       attackProfile.knockbackGrowth,
     );
@@ -773,8 +782,8 @@ function calculateKnockbackMagnitude(
   knockbackGrowth: number,
 ): number {
   const safeDamage = Math.max(0, targetDamage);
-  const exponentialScale = Math.pow(1.028, safeDamage);
-  return baseKnockback * exponentialScale + knockbackGrowth * Math.sqrt(safeDamage);
+  // Use sublinear damage scaling so early hits don't launch like finishers.
+  return baseKnockback + knockbackGrowth * Math.pow(safeDamage, 0.8);
 }
 
 function getLaunchVector(
