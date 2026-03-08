@@ -1055,7 +1055,10 @@ input {
   width: 52px;
   height: 118px;
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
 }
 
 .arena-player--ko {
@@ -1115,11 +1118,13 @@ input {
 }
 
 .arena-player__sprite {
-  width: 100%;
   height: 100%;
-  object-fit: cover;
+  width: auto;
+  max-width: none;
+  object-fit: contain;
   object-position: center bottom;
-  transform-origin: center;
+  transform-origin: center bottom;
+  display: block;
 }
 
 .match-hud {

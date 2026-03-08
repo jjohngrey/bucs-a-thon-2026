@@ -1683,9 +1683,9 @@ function updateVisualActionHolds(snapshot: MatchSnapshot): void {
 function getActionHoldMs(action: PlayerAction): number {
   switch (action) {
     case "kick":
-      return 180;
+      return 320;
     case "attack":
-      return 110;
+      return 240;
     default:
       return 0;
   }
