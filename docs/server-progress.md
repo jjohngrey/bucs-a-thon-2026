@@ -30,8 +30,10 @@ The server currently supports:
   - one attack input
   - melee hit detection
   - wider horizontal and tighter vertical melee hitboxes
+  - close-range overlap allowance so stacked fighters can still connect
   - damage application
-  - exponential knockback launch
+  - sublinear knockback scaling based on accumulated damage
+  - flatter punch launch angle so jabs send players sideways more than upward
   - flatter kick launch angle than the default punch
   - hitstun state
 - authoritative stock and respawn lifecycle:
