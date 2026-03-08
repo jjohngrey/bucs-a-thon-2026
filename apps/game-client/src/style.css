@@ -1122,6 +1122,14 @@ input {
   transform-origin: center;
 }
 
+.arena-player__charge-tint {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 24, 24, 0.9);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
 .match-hud {
   display: flex;
   flex-wrap: nowrap;

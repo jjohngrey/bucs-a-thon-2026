@@ -1325,10 +1325,9 @@ function renderMatchScreen(): string {
       const facingScale = player.facing === "left" ? -1 : 1;
       const koClass = player.isOutOfPlay ? "arena-player--ko" : "";
       const invulnClass = player.respawnInvulnerabilityMs > 0 ? "arena-player--invulnerable" : "";
-const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
+      const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
       const specialChargeRatio = getSpecialChargeRatio(player.specialChargeMs);
-      const spriteFilter = getChargeSpriteFilter(specialChargeRatio);
-      const spriteStyle = `transform: scaleX(${facingScale});${spriteFilter ? `filter:${spriteFilter};` : ""}`;
+      const chargeTintOpacity = getChargeTintOpacity(specialChargeRatio);
       return `
         <div
           class="arena-player ${koClass} ${invulnClass} arena-player--anim-${actionState}"
@@ -1341,6 +1340,11 @@ const spriteUrl = getSpriteUrlForPlayer(player.characterId, displayedAction);
             onerror="this.style.display='none'"
             style="transform: translateY(${fighterFeetOffsetPx.toFixed(1)}px) scaleX(${facingScale});"
           />
+          <div
+            class="arena-player__charge-tint"
+            style="opacity:${chargeTintOpacity.toFixed(2)};"
+            aria-hidden="true"
+          ></div>
         </div>
       `;
     })
@@ -1751,15 +1755,11 @@ function getSpecialChargeRatio(specialChargeMs: number): number {
   return clamp(specialChargeMs / DEFAULT_SPECIAL_CHARGE_MAX_MS, 0, 1);
 }
 
-function getChargeSpriteFilter(chargeRatio: number): string {
+function getChargeTintOpacity(chargeRatio: number): number {
   if (chargeRatio <= 0) {
-    return "";
+    return 0;
   }
-  const sepia = (0.18 + chargeRatio * 0.42).toFixed(2);
-  const saturate = (1 + chargeRatio * 1.8).toFixed(2);
-  const hueRotate = (-6 - chargeRatio * 12).toFixed(1);
-  const brightness = (1 - chargeRatio * 0.08).toFixed(2);
-  return `sepia(${sepia}) saturate(${saturate}) hue-rotate(${hueRotate}deg) brightness(${brightness})`;
+  return clamp(0.06 + chargeRatio * 0.44, 0, 0.5);
 }
 
 function worldToScreenX(x: number): number {
