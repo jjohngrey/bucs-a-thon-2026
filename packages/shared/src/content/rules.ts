@@ -9,7 +9,7 @@ export type MatchRulesDefinition = {
 export const DEFAULT_MATCH_RULES: MatchRulesDefinition = {
   startingStocks: 3,
   respawnDurationMs: 2000,
-  respawnTopBuffer: 280,
+  respawnTopBuffer: 100,
   respawnInvulnerabilityMs: 1200,
   respawnPlatformWidth: 170,
 };
