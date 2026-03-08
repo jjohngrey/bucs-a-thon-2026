@@ -49,7 +49,7 @@ export interface CreateMatchStateInput {
 const DEFAULT_RULES: MatchRules = {
   startingStocks: 3,
   respawnDurationMs: 2000,
-  respawnTopBuffer: 480,
+  respawnTopBuffer: 280,
   respawnInvulnerabilityMs: 1200,
   respawnPlatformWidth: 170
 };
