@@ -1338,6 +1338,7 @@ function renderMatchScreen(): string {
   return `
     <main class="match-screen" aria-label="Match view">
       <section class="match-stage" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
+        <h1 class="match-title">SUPER SMASH BUCS</h1>
         <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
           <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
           ${fallingPlatformMarkup}
@@ -1531,6 +1532,18 @@ function updateLocalPrediction(deltaMs: number): void {
     if (player.id !== localPlayerId) {
       prediction.x = blend(prediction.x, player.x, 0.15);
       prediction.y = blend(prediction.y, player.y, 0.15);
+      prediction.vy = player.vy;
+      prediction.grounded = player.grounded;
+      continue;
+    }
+
+    const anchoredOnRespawnPlatform =
+      player.respawnInvulnerabilityMs > 0 &&
+      player.respawnPlatformCenterX !== null &&
+      player.respawnPlatformY !== null;
+    if (player.action === "respawn" || anchoredOnRespawnPlatform) {
+      prediction.x = blend(prediction.x, player.x, 0.25);
+      prediction.y = blend(prediction.y, player.y, 0.25);
       prediction.vy = player.vy;
       prediction.grounded = player.grounded;
       continue;
