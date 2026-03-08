@@ -41,6 +41,12 @@ const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostn
 const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
 const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
+const STAGE_CHOICES = [
+  { id: "rooftop", label: "Rooftop" },
+  { id: "bucs", label: "Bucs" },
+  { id: "491", label: "491" },
+  { id: "arena", label: "Arena" },
+] as const;
 const WORLD_MIN_X = -200;
 const WORLD_MAX_X = 1400;
 const ARENA_WIDTH = 840;
@@ -263,6 +269,18 @@ appRoot.addEventListener("click", async (event) => {
     case "leave-lobby":
       await leaveAndDisconnectToHome();
       break;
+    case "select-stage": {
+      const stageId = actionElement.dataset.stageId;
+      if (stageId && state.lobby && state.roomCode && state.lobby.hostPlayerId === state.playerId) {
+        socket?.emit(CLIENT_EVENTS.MATCH_SELECT_STAGE, {
+          roomCode: state.roomCode,
+          stageId,
+        });
+        state.errorMessage = "";
+      }
+      render();
+      break;
+    }
     case "return-to-lobby":
       state.screen = "lobby";
       state.matchEnded = null;
@@ -950,6 +968,14 @@ function renderLobbyScreen(): string {
       }).join("")
     : "<li class=\"lobby-player lobby-player--empty\">Waiting for players...</li>";
 
+  const selectedStageId = lobby?.selectedStageId ?? STAGE_CHOICES[0].id;
+  const mapOptions = STAGE_CHOICES.map(
+    (stage) => `
+      <button type="button" class="lobby-map-option ${selectedStageId === stage.id ? "lobby-map-option--selected" : ""}" data-action="select-stage" data-stage-id="${stage.id}" ${isHost ? "" : "disabled"} title="${escapeHtml(stage.label)}">
+        <span class="lobby-map-option-label">${escapeHtml(stage.label)}</span>
+      </button>`,
+  ).join("");
+
   return `
     ${renderMuteButton()}
     <main class="shell lobby-screen">
@@ -958,6 +984,11 @@ function renderLobbyScreen(): string {
         <div class="lobby-room-code">
           <span class="lobby-room-code-label">Room Code</span>
           <span class="lobby-room-code-value">${escapeHtml(state.roomCode)}</span>
+        </div>
+
+        <div class="lobby-map-selector">
+          <span class="lobby-map-selector-label">Map</span>
+          <div class="lobby-map-options">${mapOptions}</div>
         </div>
 
         <ul class="lobby-player-list">${playerItems}</ul>
