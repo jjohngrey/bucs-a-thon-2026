@@ -29,6 +29,7 @@ The server currently supports:
 - first combat slice:
   - one attack input
   - melee hit detection
+  - wider horizontal and tighter vertical melee hitboxes
   - damage application
   - exponential knockback launch
   - flatter kick launch angle than the default punch
