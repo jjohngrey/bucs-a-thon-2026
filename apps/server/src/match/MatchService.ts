@@ -161,10 +161,10 @@ export class MatchService {
 
     const match: MatchSession = {
       roomCode,
-      stageId: lobby.selectedStageId ?? DEFAULT_STAGE_ID,
+      stageId: "491",
       phase: "countdown",
       playerIds: lobby.players.map((player) => player.id),
-      stage: STAGES[lobby.selectedStageId ?? DEFAULT_STAGE_ID] ?? DEFAULT_STAGE,
+      stage: STAGES["491"] ?? DEFAULT_STAGE,
       rules: DEFAULT_MATCH_RULES,
     };
 
