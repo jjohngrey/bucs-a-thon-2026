@@ -35,15 +35,6 @@ export const STAGES: Record<string, StageDefinition> = {
     floorY: 0,
     blastZone: ROOFTOP_BLAST,
     spawnPoints: ROOFTOP_SPAWNS,
-    platforms: [
-      { id: "bucs-low-left", x: 80, y: -50, width: 180, height: 16 },
-      { id: "bucs-low-right", x: 940, y: -50, width: 180, height: 16 },
-      { id: "bucs-mid-left", x: 280, y: -120, width: 140, height: 16 },
-      { id: "bucs-mid-center", x: 510, y: -120, width: 140, height: 16 },
-      { id: "bucs-mid-right", x: 740, y: -120, width: 140, height: 16 },
-      { id: "bucs-top-left", x: 400, y: -200, width: 120, height: 16 },
-      { id: "bucs-top-right", x: 640, y: -200, width: 120, height: 16 },
-    ],
   },
   "491": {
     id: "491",
