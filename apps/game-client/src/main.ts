@@ -38,27 +38,36 @@ type AppState = {
   errorMessage: string;
 };
 
+type ArenaViewport = {
+  widthPx: number;
+  heightPx: number;
+  scale: number;
+  groundYPx: number;
+};
+
 const DEFAULT_SERVER_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
 const SERVER_URL = resolveServerUrl();
 const ROOM_CODE_LENGTH = 6;
 const CHARACTER_CHOICES = ["fighter-1", "fighter-2", "fighter-3", "fighter-4"];
 const WORLD_MIN_X = -200;
 const WORLD_MAX_X = 1400;
-const ARENA_WIDTH = 840;
-const ARENA_HEIGHT = 360;
-const GROUND_Y_PX = 280;
+const BASE_ARENA_WIDTH = 840;
+const BASE_ARENA_HEIGHT = 360;
+const BASE_GROUND_Y_PX = 280;
 const LOCAL_SPEED_PER_TICK = 6;
 const LOCAL_JUMP_VELOCITY = -14;
 const LOCAL_GRAVITY_PER_TICK = 1.2;
 const LOCAL_MAX_FALL_SPEED_PER_TICK = 12;
 const FALLING_PLATFORM_WORLD_X = 500;
 const FALLING_PLATFORM_WORLD_Y = -110;
-const FALLING_PLATFORM_WIDTH_PX = 170;
-const FALLING_PLATFORM_HEIGHT_PX = 12;
+const BASE_FALLING_PLATFORM_WIDTH_PX = 170;
+const BASE_FALLING_PLATFORM_HEIGHT_PX = 12;
 const FALLING_PLATFORM_STABLE_FRAMES = SERVER_TICK_RATE * 5;
 const FALLING_PLATFORM_FALL_FRAMES = SERVER_TICK_RATE * 2;
 const FALLING_PLATFORM_RESET_FRAMES = SERVER_TICK_RATE * 2;
-const FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
+const BASE_FALLING_PLATFORM_DROP_DISTANCE_PX = 520;
+const BASE_FIGHTER_WIDTH_PX = 52;
+const BASE_FIGHTER_HEIGHT_PX = 118;
 
 type CharacterSpriteSet = {
   stand: string;
@@ -1210,16 +1219,19 @@ function renderCountdownScreen(): string {
 
 function renderMatchScreen(): string {
   const snapshot = state.matchSnapshot;
+  const arenaViewport = getArenaViewport();
+  const fighterWidthPx = BASE_FIGHTER_WIDTH_PX * arenaViewport.scale;
+  const fighterHeightPx = BASE_FIGHTER_HEIGHT_PX * arenaViewport.scale;
   const fallingPlatformMarkup = renderFallingPlatform(snapshot);
   if (!snapshot) {
     const placeholderPlayers = (state.lobby?.players ?? [])
       .map((player, index) => {
-        const x = 260 + index * 260;
-        const y = 500;
+        const x = arenaViewport.widthPx * (0.2 + index * 0.22);
+        const y = arenaViewport.heightPx * 0.78;
         return `
           <div
             class="arena-player arena-player--placeholder"
-            style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
+            style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${fighterWidthPx.toFixed(1)}px;height:${fighterHeightPx.toFixed(1)}px;transform: translate(-50%, -100%);"
           ></div>
         `;
       })
@@ -1227,8 +1239,8 @@ function renderMatchScreen(): string {
 
     return `
       <main class="match-screen" aria-label="Match view">
-        <section class="match-stage match-stage--loading">
-          <div class="arena">
+        <section class="match-stage match-stage--loading" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
+          <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
             <div class="arena-floor"></div>
             ${fallingPlatformMarkup}
             ${placeholderPlayers}
@@ -1254,7 +1266,7 @@ function renderMatchScreen(): string {
       return `
         <div
           class="arena-player ${koClass} ${invulnClass} arena-player--anim-${actionState}"
-          style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;transform: translate(-50%, -100%);"
+          style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${fighterWidthPx.toFixed(1)}px;height:${fighterHeightPx.toFixed(1)}px;transform: translate(-50%, -100%);"
         >
           <img
             class="arena-player__sprite"
@@ -1273,7 +1285,7 @@ function renderMatchScreen(): string {
     .map((player) => {
       const centerX = worldToScreenX(player.respawnPlatformCenterX ?? 0);
       const y = worldToScreenY(player.respawnPlatformY ?? 0);
-      return `<div class="respawn-platform" style="left:${centerX.toFixed(1)}px;top:${y.toFixed(1)}px;width:${player.respawnPlatformWidth.toFixed(1)}px"></div>`;
+      return `<div class="respawn-platform" style="left:${centerX.toFixed(1)}px;top:${y.toFixed(1)}px;width:${(player.respawnPlatformWidth * arenaViewport.scale).toFixed(1)}px"></div>`;
     })
     .join("");
 
@@ -1312,8 +1324,8 @@ function renderMatchScreen(): string {
 
   return `
     <main class="match-screen" aria-label="Match view">
-      <section class="match-stage">
-        <div class="arena">
+      <section class="match-stage" style="width:${arenaViewport.widthPx.toFixed(1)}px;">
+        <div class="arena" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
           <div class="arena-floor"></div>
           ${fallingPlatformMarkup}
           ${respawnPlatformsMarkup}
@@ -1354,6 +1366,7 @@ function renderFallingPlatform(snapshot: MatchSnapshot | null): string {
 }
 
 function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingPlatformVisualState {
+  const arenaViewport = getArenaViewport();
   const cycleFrames = FALLING_PLATFORM_STABLE_FRAMES + FALLING_PLATFORM_FALL_FRAMES + FALLING_PLATFORM_RESET_FRAMES;
   const fallbackFrame = Math.floor(performance.now() / (1000 / SERVER_TICK_RATE));
   const sourceFrame = snapshot?.serverFrame ?? fallbackFrame;
@@ -1367,8 +1380,8 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
       visible: true,
       x: baseX,
       y: baseY,
-      widthPx: FALLING_PLATFORM_WIDTH_PX,
-      heightPx: FALLING_PLATFORM_HEIGHT_PX,
+      widthPx: BASE_FALLING_PLATFORM_WIDTH_PX * arenaViewport.scale,
+      heightPx: BASE_FALLING_PLATFORM_HEIGHT_PX * arenaViewport.scale,
       shaking: phaseFrame >= warningWindowStart,
       falling: false,
     };
@@ -1381,9 +1394,9 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
     return {
       visible: true,
       x: baseX,
-      y: baseY + FALLING_PLATFORM_DROP_DISTANCE_PX * easedProgress,
-      widthPx: FALLING_PLATFORM_WIDTH_PX,
-      heightPx: FALLING_PLATFORM_HEIGHT_PX,
+      y: baseY + BASE_FALLING_PLATFORM_DROP_DISTANCE_PX * arenaViewport.scale * easedProgress,
+      widthPx: BASE_FALLING_PLATFORM_WIDTH_PX * arenaViewport.scale,
+      heightPx: BASE_FALLING_PLATFORM_HEIGHT_PX * arenaViewport.scale,
       shaking: false,
       falling: true,
     };
@@ -1393,8 +1406,8 @@ function getFallingPlatformVisualState(snapshot: MatchSnapshot | null): FallingP
     visible: false,
     x: baseX,
     y: baseY,
-    widthPx: FALLING_PLATFORM_WIDTH_PX,
-    heightPx: FALLING_PLATFORM_HEIGHT_PX,
+    widthPx: BASE_FALLING_PLATFORM_WIDTH_PX * arenaViewport.scale,
+    heightPx: BASE_FALLING_PLATFORM_HEIGHT_PX * arenaViewport.scale,
     shaking: false,
     falling: false,
   };
@@ -1615,13 +1628,34 @@ function getSpriteUrlForPlayer(characterId: string, action: PlayerAction): strin
 }
 
 function worldToScreenX(x: number): number {
+  const arenaViewport = getArenaViewport();
   const normalized = clamp((x - WORLD_MIN_X) / (WORLD_MAX_X - WORLD_MIN_X), 0, 1);
-  return normalized * ARENA_WIDTH;
+  return normalized * arenaViewport.widthPx;
 }
 
 function worldToScreenY(y: number): number {
-  const raw = GROUND_Y_PX + y;
-  return clamp(raw, 0, ARENA_HEIGHT - 4);
+  const arenaViewport = getArenaViewport();
+  const raw = arenaViewport.groundYPx + y * arenaViewport.scale;
+  return clamp(raw, 0, arenaViewport.heightPx - 4 * arenaViewport.scale);
+}
+
+function getArenaViewport(): ArenaViewport {
+  const horizontalPaddingPx = 32;
+  const verticalReservePx = 220;
+  const viewportWidthPx = Math.max(320, window.innerWidth - horizontalPaddingPx);
+  const viewportHeightPx = Math.max(220, window.innerHeight - verticalReservePx);
+  const aspectRatio = BASE_ARENA_WIDTH / BASE_ARENA_HEIGHT;
+  const widthFromHeightPx = viewportHeightPx * aspectRatio;
+  const widthPx = Math.max(320, Math.min(viewportWidthPx, widthFromHeightPx));
+  const heightPx = widthPx / aspectRatio;
+  const scale = widthPx / BASE_ARENA_WIDTH;
+
+  return {
+    widthPx,
+    heightPx,
+    scale,
+    groundYPx: BASE_GROUND_Y_PX * scale,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -239,7 +239,7 @@ Use snapshot state for:
 
 Current client render note:
 
-- the match arena is currently rendered at the same fixed `840 x 360` size used by the client world-to-screen mapping
+- the match arena now scales from the browser viewport while keeping the same gameplay aspect ratio and world mapping
 
 ### Results
 

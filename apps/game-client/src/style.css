@@ -642,8 +642,11 @@ input {
 .match-screen {
   font-family: "Share Tech Mono", "Orbitron", monospace;
   width: 100%;
-  padding: 24px 24px 16px;
-  overflow-x: auto;
+  min-height: 100vh;
+  padding: 12px 16px 10px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
 }
 
 .match-card {
@@ -686,8 +689,11 @@ input {
 }
 
 .match-stage {
-  width: 840px;
-  max-width: 840px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -695,7 +701,7 @@ input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 12px;
+  margin: 0 0 12px;
   padding: 8px 14px;
   border: 2px solid rgba(232, 168, 61, 0.35);
   border-radius: 999px;
@@ -793,8 +799,6 @@ input {
 
 .arena {
   position: relative;
-  width: 840px;
-  height: 360px;
   border: 2px solid var(--retro-border);
   border-radius: 8px;
   overflow: hidden;
@@ -1239,8 +1243,8 @@ input {
   }
 
   .match-screen {
-    padding-left: 12px;
-    padding-right: 12px;
+    padding-left: 8px;
+    padding-right: 8px;
   }
 
   .hud-player__damage {
