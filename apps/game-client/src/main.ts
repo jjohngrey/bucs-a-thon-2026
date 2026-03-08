@@ -4,6 +4,7 @@ import {
   DEFAULT_SPECIAL_CHARGE_MAX_MS,
   SERVER_EVENTS,
   SERVER_TICK_RATE,
+  STAGES,
   type LobbyState,
   type LobbyStatePayload,
   type MatchEndedPayload,
@@ -1369,6 +1370,7 @@ function renderMatchScreen(): string {
           <div class="${arenaClass}" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
             <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
             ${fallingPlatformMarkup}
+            ${renderBucsStagePlatforms(stageId)}
             ${placeholderPlayers}
           </div>
           <div class="match-status-chip" aria-live="polite">Loading fighters...</div>
@@ -1464,6 +1466,7 @@ function renderMatchScreen(): string {
         <div class="${arenaClass}" style="width:${arenaViewport.widthPx.toFixed(1)}px;height:${arenaViewport.heightPx.toFixed(1)}px;">
           <div class="arena-floor" style="top:${arenaViewport.groundYPx.toFixed(1)}px;"></div>
           ${fallingPlatformMarkup}
+          ${renderBucsStagePlatforms(stageId)}
           ${respawnPlatformsMarkup}
           ${playersMarkup}
         </div>
@@ -1483,6 +1486,30 @@ type FallingPlatformVisualState = {
   shaking: boolean;
   falling: boolean;
 };
+
+function renderBucsStagePlatforms(stageId: string | null): string {
+  if (stageId !== "bucs") {
+    return "";
+  }
+  const stage = STAGES[stageId];
+  const platforms: { id: string; x: number; y: number; width: number; height: number }[] =
+    stage && "platforms" in stage && Array.isArray(stage.platforms) ? stage.platforms : [];
+  if (platforms.length === 0) {
+    return "";
+  }
+  const arenaViewport = getArenaViewport();
+  return platforms
+    .map((p) => {
+      const leftPx = worldToScreenX(p.x);
+      const topPx = worldToScreenY(p.y);
+      const rightPx = worldToScreenX(p.x + p.width);
+      const bottomPx = worldToScreenY(p.y + p.height);
+      const widthPx = rightPx - leftPx;
+      const heightPx = bottomPx - topPx;
+      return `<div class="arena-stage-platform" style="left:${leftPx.toFixed(1)}px;top:${topPx.toFixed(1)}px;width:${widthPx.toFixed(1)}px;height:${heightPx.toFixed(1)}px;" aria-hidden="true"></div>`;
+    })
+    .join("");
+}
 
 function renderFallingPlatform(snapshot: MatchSnapshot | null): string {
   const platform = getFallingPlatformVisualState(snapshot);

@@ -546,12 +546,20 @@ function advanceSnapshot(
     const verticalVelocity = jumped ? DEFAULT_JUMP_VELOCITY : Math.min(player.vy + DEFAULT_GRAVITY_PER_TICK, MAX_FALL_SPEED_PER_TICK);
     const nextY = player.y + verticalVelocity;
     const nextX = player.x + horizontalVelocity;
-    const onPlatform =
-      session.stageId === "491"
-        ? nextX >= STAGE_491_PLATFORM_MIN_X && nextX <= STAGE_491_PLATFORM_MAX_X
-        : true;
-    const grounded = onPlatform && nextY >= session.stage.floorY;
-    const resolvedY = grounded ? session.stage.floorY : nextY;
+    let grounded: boolean;
+    let resolvedY: number;
+    if (session.stage.platforms && session.stage.platforms.length > 0) {
+      const result = getGroundedAndResolvedYForBucs(session, nextX, nextY, player.y);
+      grounded = result.grounded;
+      resolvedY = result.resolvedY;
+    } else {
+      const onPlatform =
+        session.stageId === "491"
+          ? nextX >= STAGE_491_PLATFORM_MIN_X && nextX <= STAGE_491_PLATFORM_MAX_X
+          : true;
+      grounded = onPlatform && nextY >= session.stage.floorY;
+      resolvedY = grounded ? session.stage.floorY : nextY;
+    }
     const resolvedVy = grounded ? 0 : verticalVelocity;
     const facing =
       horizontalVelocity < 0
@@ -827,6 +835,48 @@ const STAGE_491_PLATFORM_MIN_X = 120;
 const STAGE_491_PLATFORM_MAX_X = 1144;
 /** Stage 491: die soon after falling off (bottom kill line, was 900). */
 const STAGE_491_BLAST_MAX_Y = 120;
+
+/** Tolerance for "standing on" a platform (world units). */
+const PLATFORM_TOP_TOLERANCE = 8;
+
+function getGroundedAndResolvedYForBucs(
+  session: MatchSession,
+  nextX: number,
+  nextY: number,
+  previousY: number,
+): { grounded: boolean; resolvedY: number } {
+  const stage = session.stage;
+  const platforms = stage.platforms ?? [];
+  const floorY = stage.floorY;
+
+  // When falling, check if we pass through a platform top (platforms ordered highest first = y most negative)
+  const sortedPlatforms = [...platforms].sort((a, b) => a.y - b.y);
+  const falling = nextY > previousY;
+  if (falling) {
+    for (const p of sortedPlatforms) {
+      const inX = nextX >= p.x && nextX <= p.x + p.width;
+      const wouldLand = previousY < p.y && nextY >= p.y && inX;
+      if (wouldLand) {
+        return { grounded: true, resolvedY: p.y };
+      }
+    }
+  }
+
+  // Already on a platform?
+  for (const p of sortedPlatforms) {
+    const inX = nextX >= p.x && nextX <= p.x + p.width;
+    const onTop = nextY >= p.y - PLATFORM_TOP_TOLERANCE && nextY <= p.y + PLATFORM_TOP_TOLERANCE && inX;
+    if (onTop) {
+      return { grounded: true, resolvedY: p.y };
+    }
+  }
+
+  // Main floor
+  if (nextY >= floorY) {
+    return { grounded: true, resolvedY: floorY };
+  }
+  return { grounded: false, resolvedY: nextY };
+}
 
 function isOutsideBlastZone(player: PlayerMatchState, session: MatchSession): boolean {
   const stage = STAGES[session.stageId] ?? session.stage;
